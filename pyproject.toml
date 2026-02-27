@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocr"
+version = "0.1.0"
+description = "TODO."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Marko Rosenmüller" }]
+keywords = []
+dependencies = [
+  "flask==3.1.2",
+  "uvicorn==0.40.0",
+  "asgiref==3.11.1",
+]
+
+[project.scripts]
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+exclude = ["tests*", "docs*"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+]

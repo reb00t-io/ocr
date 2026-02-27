@@ -1,0 +1,7 @@
+services:
+  ocr:
+    image: ocr
+    environment:
+      - PORT=${PORT}
+    ports:
+      - "${PORT}:${PORT}"
