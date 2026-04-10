@@ -1,9 +1,14 @@
 """Mistral OCR backend.
 
-Sends a document (PDF or image bytes) to Mistral's OCR endpoint as a
-base64 data URL and returns the parsed response. The API key is read
-from the ``MISTRAL_API_KEY`` environment variable at instantiation time
-so that tests / runtime config changes are honoured.
+Sends a document (PDF or image bytes) to a Mistral-compatible OCR
+endpoint as a base64 data URL and returns the parsed response.
+
+We route through the same Privatemode proxy as the VLM and Unstructured
+backends — that is, ``${LLM_BASE_URL}/ocr`` (typically
+``http://localhost:8080/v1/ocr``) authenticated with ``LLM_API_KEY``.
+This way there's only one upstream credential to provision in deploy
+and the request still flows through Privatemode's confidential
+inference plane.
 """
 from __future__ import annotations
 
@@ -16,8 +21,25 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-MISTRAL_API_URL = os.environ.get("MISTRAL_API_URL", "https://api.mistral.ai/v1/ocr")
+LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8080/v1")
+LLM_API_KEY  = os.environ.get("LLM_API_KEY", "dummy")
 MISTRAL_OCR_MODEL = os.environ.get("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
+
+
+def derive_mistral_url(base_url: str) -> str:
+    """Sibling URL for the Mistral-compatible OCR endpoint on the LLM proxy.
+
+    Mistral's upstream path is ``/v1/ocr``; our LLM_BASE_URL already
+    ends in ``/v1`` (or doesn't), so we just append ``/ocr``.
+
+    >>> derive_mistral_url("http://localhost:8080/v1")
+    'http://localhost:8080/v1/ocr'
+    >>> derive_mistral_url("http://localhost:8080/v1/")
+    'http://localhost:8080/v1/ocr'
+    >>> derive_mistral_url("http://localhost:8080")
+    'http://localhost:8080/ocr'
+    """
+    return base_url.rstrip("/") + "/ocr"
 
 
 class MistralNotConfigured(RuntimeError):
@@ -28,18 +50,24 @@ class MistralBackend:
     def __init__(
         self,
         api_key: str | None = None,
-        url: str = MISTRAL_API_URL,
+        url: str | None = None,
         model: str = MISTRAL_OCR_MODEL,
         timeout: float = 600.0,
     ):
         # Read late so tests / runtime config changes are honoured.
-        self.api_key = api_key if api_key is not None else os.environ.get("MISTRAL_API_KEY")
-        self.url = url
+        self.api_key = (
+            api_key if api_key is not None else os.environ.get("LLM_API_KEY")
+        )
+        base = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
+        self.url = url if url is not None else derive_mistral_url(base)
         self.model = model
         self.timeout = timeout
 
     @property
     def configured(self) -> bool:
+        # `dummy` is the conventional placeholder for "no real key" used
+        # by the local Privatemode proxy; we treat it as configured
+        # because the proxy itself accepts it.
         return bool(self.api_key)
 
     def process(
@@ -57,8 +85,9 @@ class MistralBackend:
         """
         if not self.api_key:
             raise MistralNotConfigured(
-                "MISTRAL_API_KEY is not set on the server. Add it to the "
-                "environment to enable the Mistral backend."
+                "LLM_API_KEY is not set on the server. Add it to the "
+                "environment to enable the Mistral backend (it goes through "
+                "the same LLM proxy as the VLM backend)."
             )
 
         b64 = base64.b64encode(file_bytes).decode()

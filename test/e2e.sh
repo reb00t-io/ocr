@@ -9,22 +9,28 @@ trap 'docker compose down' EXIT
 
 echo "waiting for server..."
 timeout 120 bash -c '
-  until curl -sf http://localhost:'"$PORT"' > /dev/null; do
+  until curl -sf "http://localhost:'"$PORT"'/health" > /dev/null; do
     sleep 1
   done
 '
 
-echo "checking response..."
-body=$(curl -sf http://localhost:"$PORT")
+echo "checking /health..."
+body=$(curl -sf "http://localhost:${PORT}/health")
+echo "  $body"
 
-if ! echo "$body" | grep -q "hello"; then
-  echo "FAIL: response does not contain 'hello'"
+if ! echo "$body" | grep -q '"status": *"ok"'; then
+  echo "FAIL: /health did not return status=ok"
   echo "$body"
   exit 1
 fi
 
 echo "checking deploy date..."
-deploy_date=$(echo "$body" | sed -n 's/.*deployed \([^)]*\).*/\1/p')
+deploy_date=$(echo "$body" | sed -n 's/.*"deployed": *"\([^"]*\)".*/\1/p')
+if [ -z "$deploy_date" ] || [ "$deploy_date" = "unknown" ]; then
+  echo "FAIL: /health did not include a deployed timestamp"
+  exit 1
+fi
+
 if deploy_ts=$(date -u -d "$deploy_date" +%s 2>/dev/null); then
   : # GNU date (Linux)
 elif deploy_ts=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$deploy_date" +%s 2>/dev/null); then

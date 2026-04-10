@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -41,7 +42,7 @@ def _image_to_data_url(img, *, fmt: str = "JPEG", quality: int = 85) -> str:
 @demo_bp.get("/")
 @demo_bp.get("/demo")
 def demo_index():
-    return render_template("demo.html")
+    return render_template("demo.html", api_key=os.environ.get("API_KEY", ""))
 
 
 def _load_preview_images(raw: bytes):
@@ -326,7 +327,7 @@ def demo_process_mistral():
 
     if not _mistral.configured:
         return jsonify({
-            "error": "MISTRAL_API_KEY is not set on the server. "
+            "error": "LLM_API_KEY is not set on the server. "
                      "Add it to the environment to use the Mistral backend."
         }), 503
 

@@ -3,7 +3,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backends.mistral import MistralBackend, MistralNotConfigured
+from backends.mistral import (
+    MistralBackend,
+    MistralNotConfigured,
+    derive_mistral_url,
+)
 
 
 def _mock_post(status_code: int = 200, body: dict | None = None, text: str | None = None):
@@ -24,30 +28,56 @@ def _mock_post(status_code: int = 200, body: dict | None = None, text: str | Non
     return client, response
 
 
+class TestUrlDerivation:
+    def test_v1_base(self):
+        assert derive_mistral_url("http://localhost:8080/v1") == "http://localhost:8080/v1/ocr"
+
+    def test_v1_base_with_trailing_slash(self):
+        assert derive_mistral_url("http://localhost:8080/v1/") == "http://localhost:8080/v1/ocr"
+
+    def test_bare_host(self):
+        assert derive_mistral_url("http://localhost:8080") == "http://localhost:8080/ocr"
+
+    def test_remote_host(self):
+        assert derive_mistral_url("https://api.example.com/v1") == "https://api.example.com/v1/ocr"
+
+
 class TestConfiguration:
     def test_explicit_api_key_wins(self, monkeypatch):
-        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
         backend = MistralBackend(api_key="explicit-key")
         assert backend.api_key == "explicit-key"
         assert backend.configured
 
-    def test_env_var_used_when_no_arg(self, monkeypatch):
-        monkeypatch.setenv("MISTRAL_API_KEY", "env-key")
+    def test_llm_api_key_env_used_when_no_arg(self, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "env-key")
         backend = MistralBackend()
         assert backend.api_key == "env-key"
         assert backend.configured
 
     def test_unconfigured_when_neither(self, monkeypatch):
-        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
         backend = MistralBackend()
         assert backend.api_key is None
         assert not backend.configured
 
     def test_unconfigured_raises_on_process(self, monkeypatch):
-        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+        monkeypatch.delenv("LLM_API_KEY", raising=False)
         backend = MistralBackend()
         with pytest.raises(MistralNotConfigured):
             backend.process(b"data", "application/pdf")
+
+    def test_url_derived_from_llm_base_url(self, monkeypatch):
+        monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com/v1")
+        monkeypatch.setenv("LLM_API_KEY", "k")
+        backend = MistralBackend()
+        assert backend.url == "https://proxy.example.com/v1/ocr"
+
+    def test_explicit_url_overrides_env(self, monkeypatch):
+        monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com/v1")
+        monkeypatch.setenv("LLM_API_KEY", "k")
+        backend = MistralBackend(url="https://override/v1/ocr")
+        assert backend.url == "https://override/v1/ocr"
 
 
 class TestRequestShape:

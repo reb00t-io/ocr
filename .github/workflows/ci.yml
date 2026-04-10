@@ -46,6 +46,15 @@ jobs:
       - run: ./scripts/deploy.sh
         env:
           SSH_AUTH_SOCK: ${{ runner.temp }}/ssh-agent.sock
+          # Runtime secrets baked into the remote `docker run`. Configure
+          # all of these in Settings → Secrets and variables → Actions.
+          LLM_BASE_URL:     ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY:      ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL:        ${{ secrets.LLM_MODEL }}
+          MISTRAL_OCR_MODEL: ${{ secrets.MISTRAL_OCR_MODEL }}
+          AUTH_PASSWORD:    ${{ secrets.AUTH_PASSWORD }}
+          API_KEY:          ${{ secrets.API_KEY }}
+          OCR_MAX_UPLOAD_MB: ${{ secrets.OCR_MAX_UPLOAD_MB }}
       - name: Kill SSH agent
         if: always() && steps.ssh.outcome == 'success'
         run: ssh-agent -k

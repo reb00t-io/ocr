@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from flask import Blueprint, Response, render_template
@@ -26,4 +27,4 @@ def doc_markdown():
 
 @doc_bp.get("/docs")
 def doc_view():
-    return render_template("docs.html")
+    return render_template("docs.html", api_key=os.environ.get("API_KEY", ""))

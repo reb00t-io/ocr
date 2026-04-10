@@ -761,7 +761,6 @@ Scores are 1–5 (5 = best), comparing what each API offers a typical
 
 | Criterion                              | **Ours** | **Mistral** | **Google** | **Unstructured** | **Docling** |
 |----------------------------------------|:--------:|:-----------:|:----------:|:----------------:|:-----------:|
-| Ease of integration (auth, transport)  |   5      |     4       |     2      |        4         |      4      |
 | Sync PDF support                       |   5      |     5       |     4      |        5         |      5      |
 | Multi-input batching                   |   4      |     2       |     3      |        2         |      4      |
 | Input format breadth (PDF + DOCX + …)  |   1      |     3       |     2      |        5         |      5      |
@@ -774,7 +773,7 @@ Scores are 1–5 (5 = best), comparing what each API offers a typical
 | Cost / usage transparency              |   3      |     3       |     1      |        1         |      5      |
 | Operational features (id, async, jobs) |   3      |     4       |     5      |        3         |      2      |
 | Self-host / data locality              |   5      |     1       |     1      |        4         |      5      |
-| **Total (out of 65)**                  | **43**   |  **46**     |  **41**    |     **44**       |   **51**    |
+| **Total (out of 60)**                  | **38**   |  **42**     |  **39**    |     **40**       |   **47**    |
 
 Some context for the totals:
 

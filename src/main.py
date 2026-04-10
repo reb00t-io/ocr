@@ -21,14 +21,24 @@ VERSION = next((p.read_text().strip() for p in _VERSION_CANDIDATES if p.exists()
 DEPLOY_DATE = os.environ.get("DEPLOY_DATE", "unknown")
 
 # ---------------------------------------------------------------------------
-# HTTP Basic auth gate
+# Auth gates
 # ---------------------------------------------------------------------------
-# Enabled when the `AUTH_PASSWORD` env var is set. When unset, the gate is a
-# no-op (dev mode). The username field in the prompt is ignored — only the
-# password is checked. `/health` always bypasses so liveness probes work
-# without credentials.
+# Two independent layers, both opt-in via env vars:
+#
+# 1. AUTH_PASSWORD → HTTP Basic on the human-facing HTML pages (/, /demo,
+#    /docs). Browsers handle the prompt natively. Set this so anonymous
+#    visitors can't even *see* the demo viewer.
+#
+# 2. API_KEY → `X-API-Key` header (or `Authorization: Bearer <key>`) on
+#    every data endpoint (/v1/ocr, /demo/process, /demo/preview,
+#    /demo/unstructured, /demo/mistral, /doc). Set this so anonymous
+#    HTTP clients can't actually run OCR.
+#
+# `/health` is always public so liveness probes work without credentials.
+# In dev (neither var set) all gates are no-ops.
 
-_AUTH_BYPASS_PATHS = {"/health"}
+_HEALTH_PATH = "/health"
+_HTML_PAGE_PATHS = {"/", "/demo", "/docs"}
 
 
 def _check_basic_auth_header(header: str | None, expected_password: str) -> bool:
@@ -43,26 +53,69 @@ def _check_basic_auth_header(header: str | None, expected_password: str) -> bool
     return hmac.compare_digest(password, expected_password)
 
 
+def _check_api_key(expected: str) -> bool:
+    """True if the current request carries the right API key.
+
+    Accepts either ``X-API-Key: <key>`` or ``Authorization: Bearer <key>``
+    so HTTP clients can use whichever idiom they prefer.
+    """
+    supplied = request.headers.get("X-API-Key")
+    if supplied is None:
+        auth = request.headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):
+            supplied = auth.split(" ", 1)[1].strip()
+    if not supplied:
+        return False
+    return hmac.compare_digest(supplied, expected)
+
+
 @app.before_request
-def _gate_with_basic_auth():
-    expected = os.environ.get("AUTH_PASSWORD")
-    if not expected:
-        return None  # dev mode — no auth
-    if request.path in _AUTH_BYPASS_PATHS:
+def _gate_requests():
+    if request.path == _HEALTH_PATH:
         return None
-    if _check_basic_auth_header(request.headers.get("Authorization"), expected):
+
+    auth_password = os.environ.get("AUTH_PASSWORD")
+    api_key = os.environ.get("API_KEY")
+    is_html_page = request.path in _HTML_PAGE_PATHS
+
+    # ---- HTML pages: HTTP Basic via AUTH_PASSWORD ------------------------
+    if is_html_page and auth_password:
+        if not _check_basic_auth_header(request.headers.get("Authorization"), auth_password):
+            return Response(
+                "Authentication required\n",
+                status=401,
+                headers={"WWW-Authenticate": 'Basic realm="OCR Viewer", charset="UTF-8"'},
+                mimetype="text/plain",
+            )
         return None
-    return Response(
-        "Authentication required\n",
-        status=401,
-        headers={"WWW-Authenticate": 'Basic realm="OCR Viewer", charset="UTF-8"'},
-        mimetype="text/plain",
-    )
+
+    # ---- Data endpoints: API_KEY header ---------------------------------
+    if not is_html_page and api_key:
+        if not _check_api_key(api_key):
+            return jsonify({
+                "error": "Missing or invalid API key. Send X-API-Key: <key> "
+                         "or Authorization: Bearer <key>.",
+            }), 401
+        return None
+
+    # Dev mode (or matching gate not configured): pass through.
+    return None
+
+
+def _api_key_for_template() -> str:
+    """Return the API key to embed into HTML page templates so the bundled
+    JS can authenticate its backend calls. Empty string when API_KEY is
+    not configured (dev mode)."""
+    return os.environ.get("API_KEY", "")
 
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok", "version": VERSION})
+    return jsonify({
+        "status": "ok",
+        "version": VERSION,
+        "deployed": DEPLOY_DATE,
+    })
 
 
 if __name__ == "__main__":

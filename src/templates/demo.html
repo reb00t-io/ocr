@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="api-key" content="{{ api_key|default('', true) }}">
   <title>OCR Viewer</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
@@ -489,6 +490,14 @@
       }
     });
 
+    // API key (rendered into a meta tag by the server when API_KEY is set).
+    // The viewer's backend calls go to the same origin, so we just attach
+    // the key as `X-API-Key` on every fetch — no localStorage, no prompts.
+    const API_KEY = (document.querySelector('meta[name="api-key"]')?.getAttribute('content') || '').trim();
+    function authHeaders() {
+      return API_KEY ? { "X-API-Key": API_KEY } : {};
+    }
+
     const fileInput = document.getElementById("file");
     const status = document.getElementById("status");
     const main = document.getElementById("main");
@@ -692,6 +701,7 @@
         const resp = await fetch("/demo/preview", {
           method: "POST",
           body: fd,
+          headers: authHeaders(),
           signal: inflight.signal,
         });
         if (!resp.ok) {
@@ -819,6 +829,7 @@
         const resp = await fetch(BACKEND_ENDPOINTS[backend], {
           method: "POST",
           body: fd,
+          headers: authHeaders(),
           signal: inflight.signal,
         });
         if (!resp.ok) {

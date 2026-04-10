@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="api-key" content="{{ api_key|default('', true) }}">
   <title>OCR API Docs</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
@@ -190,10 +191,14 @@
   </main>
 
   <script>
+    const API_KEY = (document.querySelector('meta[name="api-key"]')?.getAttribute('content') || '').trim();
+
     (async () => {
       const target = document.getElementById("doc");
       try {
-        const resp = await fetch("/doc", { headers: { accept: "text/markdown" } });
+        const headers = { accept: "text/markdown" };
+        if (API_KEY) headers["X-API-Key"] = API_KEY;
+        const resp = await fetch("/doc", { headers });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const md = await resp.text();
         target.innerHTML = marked.parse(md);
