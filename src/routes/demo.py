@@ -106,6 +106,7 @@ def demo_process():
     describe_images = (request.form.get("describe_images") or "").strip().lower() in (
         "1", "true", "yes", "on",
     )
+    user_prompt = (request.form.get("prompt") or "").strip() or None
 
     t_total_start = time.monotonic()
 
@@ -154,6 +155,7 @@ def demo_process():
                         path,
                         "markdown",
                         describe_images=describe_images,
+                        user_prompt=user_prompt,
                     ),
                 }
             except Exception as exc:

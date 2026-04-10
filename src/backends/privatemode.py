@@ -147,6 +147,7 @@ class PrivatemodeBackend:
         output_format: str,
         language: str | None = None,
         describe_images: bool = False,
+        user_prompt: str | None = None,
     ) -> dict:
         base64_image = encode_jpeg_image(image_path)
         prompt = _PROMPTS[output_format]
@@ -156,6 +157,22 @@ class PrivatemodeBackend:
             # The JSON prompt has a strict schema; tacking on a free-form
             # section would break the response. Markdown / text are fine.
             prompt = f"{prompt}{_DESCRIBE_IMAGES_SUFFIX}"
+        if user_prompt and output_format != "json":
+            # Merge the caller's instruction as the *primary* directive.
+            # Placing it after the defaults and explicitly flagging it
+            # as overriding them makes the model follow the user's
+            # intent (e.g. "summarize each page") even when it conflicts
+            # with "preserve all structure" in the base prompt. The
+            # defaults still apply to everything the user didn't
+            # override (format, output-only constraint, etc.). JSON
+            # format is skipped because the strict schema doesn't leave
+            # room for free-form changes.
+            prompt = (
+                f"{prompt}\n\n"
+                f"Additional instruction from the user "
+                f"(treat this as the primary task and override the "
+                f"defaults above where they conflict): {user_prompt}"
+            )
 
         messages = [
             {
@@ -203,6 +220,7 @@ class PrivatemodeBackend:
         threads: int = 4,
         language: str | None = None,
         describe_images: bool = False,
+        user_prompt: str | None = None,
     ) -> list[dict]:
         """Process a list of images in parallel and return results in original order."""
         results: list[dict | None] = [None] * len(image_paths)
@@ -210,7 +228,12 @@ class PrivatemodeBackend:
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = {
                 executor.submit(
-                    self._ocr_single, path, output_format, language, describe_images,
+                    self._ocr_single,
+                    path,
+                    output_format,
+                    language,
+                    describe_images,
+                    user_prompt,
                 ): i
                 for i, path in enumerate(image_paths)
             }

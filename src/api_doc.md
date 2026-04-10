@@ -55,6 +55,7 @@ provided.
 | `output.describe_images` | boolean                      | `false`      | If `true`, the OCR prompt instructs the model to append a final `## Image Descriptions` section listing every figure / photo / chart / diagram in the page with a one-sentence description. Has no effect for `format=json` (the strict JSON schema doesn't allow extra prose). |
 | `id`             | string                               | —            | Optional client-supplied request id; echoed back in the response.           |
 | `language`       | string (BCP-47)                      | —            | Optional language hint (e.g. `"en"`, `"de"`, `"fr"`). Forwarded to the OCR prompt. |
+| `prompt`         | string                               | —            | Optional free-form instruction merged into the OCR prompt as the **primary directive** (e.g. `"summarize each page"`, `"translate to English"`, `"only list the invoice totals"`). Overrides the default "preserve all structure" behaviour where they conflict. Ignored when `output.format=json` (the strict JSON schema doesn't leave room for free-form changes). |
 
 > Parallelism is configured server-side via the `OCR_THREADS` constant in
 > `src/routes/ocr.py` (default `4`) and is **not exposed through the API**.

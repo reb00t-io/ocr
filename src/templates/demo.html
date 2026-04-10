@@ -320,6 +320,14 @@
       font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     }
     .range-group input::placeholder { color: #4d5468; }
+
+    #prompt-group input {
+      width: 240px;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+    }
+    @media (min-width: 1400px) {
+      #prompt-group input { width: 320px; }
+    }
     .pill-toggle {
       padding: 7px 12px;
       border: 1px solid var(--border);
@@ -423,6 +431,12 @@
             title="Ask the model to describe figures and images in a final section (VLM only)">
       Describe&nbsp;images
     </button>
+    <div id="prompt-group" class="range-group">
+      <label for="prompt-input">Prompt</label>
+      <input id="prompt-input" type="text"
+             placeholder="optional — e.g. summarize each page"
+             autocomplete="off" spellcheck="false">
+    </div>
     <button id="go" class="go" type="button" disabled>Run OCR</button>
     <div class="toggle" role="tablist" aria-label="markdown view">
       <button id="view-rendered" class="active" type="button">Rendered</button>
@@ -512,6 +526,8 @@
     const backendUnstructuredBtn = document.getElementById("backend-unstructured");
     const backendMistralBtn      = document.getElementById("backend-mistral");
     const describeImagesBtn      = document.getElementById("describe-images");
+    const promptGroup            = document.getElementById("prompt-group");
+    const promptInput            = document.getElementById("prompt-input");
 
     const BACKEND_ENDPOINTS = {
       vlm:          "/demo/process",
@@ -536,19 +552,24 @@
     let pageData = [];               // [{index, image, markdown?, error?, ocr_ms?}]
     let inflight = null;             // AbortController for the active request
 
-    function refreshDescribeImagesUi() {
-      // Image-description prompts only work with the VLM backend; for the
-      // other providers we hand off to a remote API and can't tweak the
-      // prompt, so disable (and visually deactivate) the toggle.
+    function refreshVlmOnlyControls() {
+      // Prompt tweaks (describe-images, custom prompt) only work with the
+      // VLM backend — Mistral/Unstructured go through their own remote
+      // APIs and we can't steer their prompts. Disable the relevant
+      // controls but preserve the user's intent across backend flips.
       const enabled = backend === "vlm";
+
       describeImagesBtn.disabled = !enabled;
       describeImagesBtn.title = enabled
         ? "Toggle: ask the model to describe figures and images in a final section"
         : "Image descriptions are only available with the VLM backend";
-      // Force the visual state to reflect whether it'll be sent on the next
-      // request. The user's intent (`describeImages`) is preserved across
-      // backend toggles so flipping VLM → Mistral → VLM keeps the choice.
       describeImagesBtn.classList.toggle("active", enabled && describeImages);
+
+      promptInput.disabled = !enabled;
+      promptGroup.classList.toggle("disabled", !enabled);
+      promptInput.title = enabled
+        ? "Optional extra instruction merged into the OCR prompt as the primary task"
+        : "Custom prompts are only available with the VLM backend";
     }
 
     function setBackend(name) {
@@ -557,7 +578,7 @@
       for (const [k, btn] of Object.entries(BACKEND_BUTTONS)) {
         btn.classList.toggle("active", k === name);
       }
-      refreshDescribeImagesUi();
+      refreshVlmOnlyControls();
     }
     for (const [k, btn] of Object.entries(BACKEND_BUTTONS)) {
       btn.addEventListener("click", () => setBackend(k));
@@ -566,9 +587,9 @@
     describeImagesBtn.addEventListener("click", () => {
       if (describeImagesBtn.disabled) return;
       describeImages = !describeImages;
-      refreshDescribeImagesUi();
+      refreshVlmOnlyControls();
     });
-    refreshDescribeImagesUi();
+    refreshVlmOnlyControls();
 
     function fmtMs(ms) {
       if (ms == null) return "—";
@@ -677,6 +698,9 @@
       if (chosenFile) runOcr(chosenFile);
     });
     rangeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !goBtn.disabled) runOcr(chosenFile);
+    });
+    promptInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !goBtn.disabled) runOcr(chosenFile);
     });
 
@@ -824,6 +848,10 @@
       if (apiRange) fd.append("pages", apiRange);
       if (backend === "vlm" && describeImages) {
         fd.append("describe_images", "true");
+      }
+      if (backend === "vlm") {
+        const extra = (promptInput.value || "").trim();
+        if (extra) fd.append("prompt", extra);
       }
 
       try {

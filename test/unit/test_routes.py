@@ -20,7 +20,7 @@ def client():
 
     counter = {"i": 0}
 
-    def fake_ocr_single(self, image_path, output_format, language=None, describe_images=False):
+    def fake_ocr_single(self, image_path, output_format, language=None, describe_images=False, user_prompt=None):
         i = counter["i"]
         counter["i"] += 1
         _last_calls.append({
@@ -28,6 +28,7 @@ def client():
             "format": output_format,
             "language": language,
             "describe_images": describe_images,
+            "user_prompt": user_prompt,
         })
         if _canned_content:
             content = _canned_content[i % len(_canned_content)]
@@ -214,6 +215,32 @@ class TestOcrImageRoute:
         resp = client.post("/v1/ocr", json=payload)
         assert resp.status_code == 200
         assert _last_calls[-1]["describe_images"] is False
+
+    def test_prompt_passed_to_backend(self, client):
+        payload = {
+            "images": [{"type": "base64", "value": base64.b64encode(_png_bytes()).decode()}],
+            "prompt": "summarize each page",
+        }
+        resp = client.post("/v1/ocr", json=payload)
+        assert resp.status_code == 200
+        assert _last_calls[-1]["user_prompt"] == "summarize each page"
+
+    def test_prompt_default_none(self, client):
+        payload = {
+            "images": [{"type": "base64", "value": base64.b64encode(_png_bytes()).decode()}],
+        }
+        resp = client.post("/v1/ocr", json=payload)
+        assert resp.status_code == 200
+        assert _last_calls[-1]["user_prompt"] is None
+
+    def test_prompt_empty_string_treated_as_none(self, client):
+        payload = {
+            "images": [{"type": "base64", "value": base64.b64encode(_png_bytes()).decode()}],
+            "prompt": "   ",
+        }
+        resp = client.post("/v1/ocr", json=payload)
+        assert resp.status_code == 200
+        assert _last_calls[-1]["user_prompt"] is None
 
     def test_empty_body_returns_400(self, client):
         resp = client.post("/v1/ocr", data="", content_type="application/json")

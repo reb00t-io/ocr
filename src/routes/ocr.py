@@ -99,6 +99,7 @@ def ocr():
                         req.output.format,
                         req.language,
                         req.output.describe_images,
+                        req.prompt,
                     ),
                 }
             except Exception as exc:

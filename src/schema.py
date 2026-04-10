@@ -135,6 +135,12 @@ class OCRRequest:
     # Optional language hint, BCP-47 (e.g. "en", "de", "en-US"). Forwarded
     # into the OCR prompt to bias the model on non-English documents.
     language: str | None = None
+    # Optional free-form instruction from the caller (e.g. "summarize each
+    # page", "translate to French", "only list the invoice totals"). It is
+    # merged into the VLM prompt as the *primary* directive, so it
+    # overrides the default "preserve all structure" behaviour where the
+    # two conflict. VLM backend only — ignored by Mistral/Unstructured.
+    prompt: str | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "OCRRequest":
@@ -181,6 +187,14 @@ class OCRRequest:
                 raise ValueError("'language' must be a non-empty string")
             language = language.strip()
 
+        prompt = d.get("prompt")
+        if prompt is not None:
+            if not isinstance(prompt, str):
+                raise ValueError("'prompt' must be a string")
+            prompt = prompt.strip()
+            if not prompt:
+                prompt = None  # empty / whitespace-only → treat as unset
+
         return cls(
             images=images,
             document=document,
@@ -188,6 +202,7 @@ class OCRRequest:
             output=output,
             id=req_id,
             language=language,
+            prompt=prompt,
         )
 
 

@@ -163,13 +163,82 @@ class TestOcrSingle:
         assert "de" in prompt
         assert "Image Descriptions" in prompt
 
+    @patch("backends.privatemode.encode_jpeg_image", return_value="base64data")
+    def test_user_prompt_merged_after_defaults_with_override_framing(self, mock_encode):
+        backend = _make_backend()
+        create_mock = MagicMock(return_value=_mock_completion("text"))
+        backend.client.chat.completions.create = create_mock
+
+        backend._ocr_single("/fake/image.jpg", "markdown", user_prompt="summarize each page")
+
+        prompt = create_mock.call_args.kwargs["messages"][0]["content"][1]["text"]
+        # Default prompt is still there as a baseline.
+        assert "Convert this document image to markdown" in prompt
+        # User instruction is appended verbatim.
+        assert "summarize each page" in prompt
+        # User instruction comes AFTER the defaults so the model sees it
+        # as the most recent (and primary) directive.
+        assert prompt.index("Convert this document image") < prompt.index("summarize each page")
+        # The override framing is present so the model knows to follow
+        # the user even when it conflicts with "preserve all structure".
+        assert "primary task" in prompt or "override" in prompt.lower()
+
+    @patch("backends.privatemode.encode_jpeg_image", return_value="base64data")
+    def test_user_prompt_default_omitted(self, mock_encode):
+        backend = _make_backend()
+        create_mock = MagicMock(return_value=_mock_completion("text"))
+        backend.client.chat.completions.create = create_mock
+
+        backend._ocr_single("/fake/image.jpg", "markdown")
+
+        prompt = create_mock.call_args.kwargs["messages"][0]["content"][1]["text"]
+        assert "primary task" not in prompt
+        assert "override" not in prompt.lower()
+
+    @patch("backends.privatemode.encode_jpeg_image", return_value="base64data")
+    def test_user_prompt_skipped_for_json_format(self, mock_encode):
+        backend = _make_backend()
+        import json as _json
+        create_mock = MagicMock(
+            return_value=_mock_completion(_json.dumps({"title": "", "content": "x", "sections": []}))
+        )
+        backend.client.chat.completions.create = create_mock
+
+        # JSON has a strict schema; merging a free-form user prompt would
+        # corrupt the response. Verify it's silently dropped for json.
+        backend._ocr_single("/fake/image.jpg", "json", user_prompt="summarize each page")
+
+        prompt = create_mock.call_args.kwargs["messages"][0]["content"][1]["text"]
+        assert "summarize" not in prompt
+        assert "primary task" not in prompt
+
+    @patch("backends.privatemode.encode_jpeg_image", return_value="base64data")
+    def test_user_prompt_combines_with_language_and_describe_images(self, mock_encode):
+        backend = _make_backend()
+        create_mock = MagicMock(return_value=_mock_completion("text"))
+        backend.client.chat.completions.create = create_mock
+
+        backend._ocr_single(
+            "/fake/image.jpg", "markdown",
+            language="de",
+            describe_images=True,
+            user_prompt="translate to English",
+        )
+
+        prompt = create_mock.call_args.kwargs["messages"][0]["content"][1]["text"]
+        assert "de" in prompt                          # language hint
+        assert "Image Descriptions" in prompt          # describe-images suffix
+        assert "translate to English" in prompt        # user prompt
+        # User prompt should be the last (primary) instruction.
+        assert prompt.index("Image Descriptions") < prompt.index("translate to English")
+
 
 class TestProcessImages:
     @patch("backends.privatemode.encode_jpeg_image", return_value="b64")
     def test_results_in_original_order(self, mock_encode):
         backend = _make_backend()
 
-        def side_effect(path, fmt, language=None, describe_images=False):
+        def side_effect(path, fmt, language=None, describe_images=False, user_prompt=None):
             return {"content": f"result-for-{path}"}
 
         backend._ocr_single = MagicMock(side_effect=side_effect)
@@ -185,7 +254,7 @@ class TestProcessImages:
     def test_failed_image_records_error(self, mock_encode):
         backend = _make_backend()
 
-        def side_effect(path, fmt, language=None, describe_images=False):
+        def side_effect(path, fmt, language=None, describe_images=False, user_prompt=None):
             if "bad" in path:
                 raise RuntimeError("LLM timeout")
             return {"content": "ok"}

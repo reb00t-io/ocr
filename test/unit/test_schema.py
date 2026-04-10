@@ -172,6 +172,29 @@ class TestOCRRequest:
         with pytest.raises(ValueError, match="language"):
             OCRRequest.from_dict(self._valid_payload(language="   "))
 
+    def test_prompt_default_none(self):
+        req = OCRRequest.from_dict(self._valid_payload())
+        assert req.prompt is None
+
+    def test_prompt_set(self):
+        req = OCRRequest.from_dict(self._valid_payload(prompt="summarize each page"))
+        assert req.prompt == "summarize each page"
+
+    def test_prompt_is_stripped(self):
+        req = OCRRequest.from_dict(self._valid_payload(prompt="  translate to French  "))
+        assert req.prompt == "translate to French"
+
+    def test_prompt_empty_string_becomes_none(self):
+        # Whitespace-only / empty input is silently treated as unset.
+        req = OCRRequest.from_dict(self._valid_payload(prompt=""))
+        assert req.prompt is None
+        req = OCRRequest.from_dict(self._valid_payload(prompt="   "))
+        assert req.prompt is None
+
+    def test_prompt_non_string_raises(self):
+        with pytest.raises(ValueError, match="prompt"):
+            OCRRequest.from_dict(self._valid_payload(prompt=123))
+
 
 class TestParsePages:
     def test_list_of_ints(self):
