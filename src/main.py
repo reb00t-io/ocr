@@ -10,8 +10,20 @@ from routes.demo import demo_bp
 from routes.doc import doc_bp
 from routes.ocr import ocr_bp
 
+def _env_int(name: str, default: int) -> int:
+    """Read an integer env var, treating empty string the same as unset.
+
+    The deploy pipeline often passes ``-e VAR=`` (no value) for optional
+    knobs that come from CI secrets, and ``int("")`` would crash startup.
+    """
+    raw = os.environ.get(name, "")
+    if raw == "":
+        return default
+    return int(raw)
+
+
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("OCR_MAX_UPLOAD_MB", "50")) * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = _env_int("OCR_MAX_UPLOAD_MB", 50) * 1024 * 1024
 app.register_blueprint(ocr_bp)
 app.register_blueprint(demo_bp)
 app.register_blueprint(doc_bp)
@@ -38,7 +50,7 @@ DEPLOY_DATE = os.environ.get("DEPLOY_DATE", "unknown")
 # In dev (neither var set) all gates are no-ops.
 
 _HEALTH_PATH = "/health"
-_HTML_PAGE_PATHS = {"/", "/demo", "/docs"}
+_HTML_PAGE_PATHS = {"/", "/demo", "/docs", "/compare"}
 
 
 def _check_basic_auth_header(header: str | None, expected_password: str) -> bool:

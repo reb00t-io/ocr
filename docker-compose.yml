@@ -1,15 +1,19 @@
 services:
   ocr:
     image: ocr
+    container_name: ocr
+    restart: unless-stopped
+    # Every value is read from the `.env` file in the same directory.
+    # Unset / empty entries are passed through as empty strings — main.py
+    # and the backend modules treat empty as unset.
     environment:
-      - PORT=${PORT}
-      - LLM_BASE_URL
-      - LLM_API_KEY
-      - LLM_MODEL
-      - MISTRAL_OCR_MODEL
-      - AUTH_PASSWORD
-      - API_KEY
-      - OCR_FILE_TTL_SECONDS
-      - OCR_MAX_UPLOAD_MB
+      PORT:              "${PORT}"
+      LLM_BASE_URL:      "${LLM_BASE_URL:-}"
+      LLM_API_KEY:       "${LLM_API_KEY:-}"
+      LLM_MODEL:         "${LLM_MODEL:-}"
+      MISTRAL_OCR_MODEL: "${MISTRAL_OCR_MODEL:-}"
+      AUTH_PASSWORD:     "${AUTH_PASSWORD:-}"
+      API_KEY:           "${API_KEY:-}"
+      OCR_MAX_UPLOAD_MB: "${OCR_MAX_UPLOAD_MB:-}"
     ports:
       - "${PORT}:${PORT}"

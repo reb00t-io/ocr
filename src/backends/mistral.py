@@ -21,9 +21,14 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8080/v1")
-LLM_API_KEY  = os.environ.get("LLM_API_KEY", "dummy")
-MISTRAL_OCR_MODEL = os.environ.get("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
+def _env_str(name: str, default: str) -> str:
+    val = os.environ.get(name, "")
+    return val if val else default
+
+
+LLM_BASE_URL = _env_str("LLM_BASE_URL", "http://localhost:8080/v1")
+LLM_API_KEY  = _env_str("LLM_API_KEY", "dummy")
+MISTRAL_OCR_MODEL = _env_str("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
 
 
 def derive_mistral_url(base_url: str) -> str:
@@ -54,13 +59,15 @@ class MistralBackend:
         model: str = MISTRAL_OCR_MODEL,
         timeout: float = 600.0,
     ):
-        # Read late so tests / runtime config changes are honoured.
-        self.api_key = (
-            api_key if api_key is not None else os.environ.get("LLM_API_KEY")
-        )
-        base = os.environ.get("LLM_BASE_URL", LLM_BASE_URL)
+        # Read late so tests / runtime config changes are honoured. Empty
+        # strings count as unset (CI sometimes passes -e VAR= for unset
+        # secrets).
+        self.api_key = api_key if api_key is not None else _env_str("LLM_API_KEY", "")
+        if not self.api_key:
+            self.api_key = None
+        base = _env_str("LLM_BASE_URL", LLM_BASE_URL)
         self.url = url if url is not None else derive_mistral_url(base)
-        self.model = model
+        self.model = model or MISTRAL_OCR_MODEL
         self.timeout = timeout
 
     @property

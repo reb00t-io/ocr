@@ -92,6 +92,12 @@ class TestBasicAuthOnHtmlPages:
         resp = app_with_basic.get("/docs", headers={"Authorization": _basic("letmein")})
         assert resp.status_code == 200
 
+    def test_compare_also_gated(self, app_with_basic):
+        resp = app_with_basic.get("/compare")
+        assert resp.status_code == 401
+        resp = app_with_basic.get("/compare", headers={"Authorization": _basic("letmein")})
+        assert resp.status_code == 200
+
     def test_health_bypasses_basic(self, app_with_basic):
         resp = app_with_basic.get("/health")
         assert resp.status_code == 200
@@ -153,6 +159,12 @@ class TestApiKeyOnDataEndpoints:
         resp = app_with_api_key.get("/doc")
         assert resp.status_code == 401
         resp = app_with_api_key.get("/doc", headers={"X-API-Key": "secret-token"})
+        assert resp.status_code == 200
+
+    def test_comparison_requires_key(self, app_with_api_key):
+        resp = app_with_api_key.get("/comparison")
+        assert resp.status_code == 401
+        resp = app_with_api_key.get("/comparison", headers={"X-API-Key": "secret-token"})
         assert resp.status_code == 200
 
     def test_demo_html_open_when_only_api_key_set(self, app_with_api_key):

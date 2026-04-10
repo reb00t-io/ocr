@@ -5,7 +5,7 @@ RUN apt-get update \
 	&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY pyproject.toml VERSION ./
+COPY pyproject.toml VERSION API_COMPARISON.md ./
 COPY src/ .
 RUN pip install --no-cache-dir .
 ARG DEPLOY_DATE=unknown

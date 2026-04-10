@@ -83,6 +83,31 @@ class TestDocs:
         body = resp.get_data(as_text=True)
         assert "marked" in body  # client-side markdown renderer is referenced
         assert "/doc" in body    # the page fetches /doc
+        assert 'name="markdown-url" content="/doc"' in body
+
+    def test_comparison_returns_markdown(self, client):
+        resp = client.get("/comparison")
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/markdown"
+        body = resp.get_data(as_text=True)
+        assert body.lstrip().startswith("# OCR API Comparison")
+        # Sanity-check a couple of structural anchors.
+        assert "Mistral" in body
+        assert "Unstructured" in body
+
+    def test_compare_returns_html(self, client):
+        resp = client.get("/compare")
+        assert resp.status_code == 200
+        assert "text/html" in resp.content_type
+        body = resp.get_data(as_text=True)
+        assert "marked" in body
+        # The viewer template should be parameterised to fetch /comparison.
+        assert 'name="markdown-url" content="/comparison"' in body
+        # Title should reflect the comparison page.
+        assert "OCR API Comparison" in body
+        # Both nav links should be present and "compare" should be active.
+        assert 'href="/docs"' in body
+        assert 'href="/compare"' in body
 
 
 class TestOcrImageRoute:

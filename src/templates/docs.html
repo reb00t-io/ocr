@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="api-key" content="{{ api_key|default('', true) }}">
-  <title>OCR API Docs</title>
+  <meta name="markdown-url" content="{{ markdown_url|default('/doc', true) }}">
+  <title>{{ page_title|default('OCR API Docs', true) }}</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
@@ -181,9 +182,10 @@
     <div class="brand">OCR<span class="dot">·</span>Viewer</div>
     <nav>
       <a href="/demo">Viewer</a>
-      <a href="/docs" class="active">API Docs</a>
+      <a href="/docs"    class="{% if active_nav == 'docs'    %}active{% endif %}">API Docs</a>
+      <a href="/compare" class="{% if active_nav == 'compare' %}active{% endif %}">API Comparison</a>
     </nav>
-    <a class="raw-link" href="/doc">View raw markdown ↗</a>
+    <a class="raw-link" href="{{ markdown_url|default('/doc', true) }}">View raw markdown ↗</a>
   </header>
 
   <main>
@@ -192,13 +194,14 @@
 
   <script>
     const API_KEY = (document.querySelector('meta[name="api-key"]')?.getAttribute('content') || '').trim();
+    const MARKDOWN_URL = (document.querySelector('meta[name="markdown-url"]')?.getAttribute('content') || '/doc').trim();
 
     (async () => {
       const target = document.getElementById("doc");
       try {
         const headers = { accept: "text/markdown" };
         if (API_KEY) headers["X-API-Key"] = API_KEY;
-        const resp = await fetch("/doc", { headers });
+        const resp = await fetch(MARKDOWN_URL, { headers });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const md = await resp.text();
         target.innerHTML = marked.parse(md);
@@ -208,7 +211,7 @@
           if (el) el.scrollIntoView({ behavior: "auto", block: "start" });
         }
       } catch (e) {
-        target.innerHTML = `<div class="err">Failed to load /doc: ${e.message}</div>`;
+        target.innerHTML = `<div class="err">Failed to load ${MARKDOWN_URL}: ${e.message}</div>`;
       }
     })();
   </script>

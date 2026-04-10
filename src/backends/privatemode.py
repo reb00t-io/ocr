@@ -9,9 +9,15 @@ from backends.image import encode_jpeg_image
 
 logger = logging.getLogger(__name__)
 
-LLM_BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:8080/v1")
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "dummy")
-LLM_MODEL = os.environ.get("LLM_MODEL", "gemma-3-27b")
+def _env_str(name: str, default: str) -> str:
+    """Read a string env var, treating empty string the same as unset."""
+    val = os.environ.get(name, "")
+    return val if val else default
+
+
+LLM_BASE_URL = _env_str("LLM_BASE_URL", "http://localhost:8080/v1")
+LLM_API_KEY = _env_str("LLM_API_KEY", "dummy")
+LLM_MODEL = _env_str("LLM_MODEL", "gemma-3-27b")
 
 _PROMPTS = {
     "markdown": (
