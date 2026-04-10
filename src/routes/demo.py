@@ -157,7 +157,10 @@ def demo_process():
                     ),
                 }
             except Exception as exc:
-                logger.error("OCR failed for slot %d: %s", i, exc)
+                logger.error(
+                    "VLM OCR failed for slot %d (base_url=%s model=%s): %s",
+                    i, _backend.base_url, _backend.model, exc,
+                )
                 results[i] = {"index": i, "content": None, "error": str(exc)}
             finally:
                 page_ms[i] = int((time.monotonic() - t0) * 1000)

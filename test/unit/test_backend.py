@@ -1,9 +1,10 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
-from backends.privatemode import PrivatemodeBackend
+from backends.privatemode import PrivatemodeBackend, _describe_openai_error
 
 
 def _make_backend() -> PrivatemodeBackend:
@@ -210,3 +211,47 @@ class TestProcessImages:
         backend = _make_backend()
         results = backend.process_images([], "markdown", threads=2)
         assert results == []
+
+
+class TestErrorDescribing:
+    def _status_error(self, status: int, body: str, method: str = "POST", url: str = "http://llm/v1/chat/completions"):
+        """Build a real openai.APIStatusError around a fake httpx response."""
+        from openai import APIStatusError
+        req = httpx.Request(method, url)
+        resp = httpx.Response(status, content=body.encode(), request=req)
+        return APIStatusError(message=body, response=resp, body=None)
+
+    def test_status_error_includes_url_and_status(self):
+        exc = self._status_error(404, "404 page not found")
+        msg = _describe_openai_error(exc)
+        assert "POST" in msg
+        assert "http://llm/v1/chat/completions" in msg
+        assert "HTTP 404" in msg
+        assert "404 page not found" in msg
+
+    def test_status_error_truncates_large_body(self):
+        body = "x" * 1000
+        exc = self._status_error(500, body)
+        msg = _describe_openai_error(exc)
+        assert "HTTP 500" in msg
+        assert "…" in msg  # body was truncated
+
+    def test_non_openai_exception_passes_through(self):
+        exc = ValueError("something else")
+        msg = _describe_openai_error(exc)
+        assert "ValueError" in msg
+        assert "something else" in msg
+
+    @patch("backends.privatemode.encode_jpeg_image", return_value="b64")
+    def test_ocr_single_wraps_openai_errors_with_url(self, mock_encode):
+        backend = _make_backend()
+        exc = TestErrorDescribing()._status_error(404, "404 page not found")
+        backend.client.chat.completions.create = MagicMock(side_effect=exc)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            backend._ocr_single("/fake.jpg", "markdown")
+
+        msg = str(exc_info.value)
+        assert "POST" in msg
+        assert "http://llm/v1/chat/completions" in msg
+        assert "HTTP 404" in msg

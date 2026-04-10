@@ -3,11 +3,57 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, OpenAI
 
 from backends.image import encode_jpeg_image
 
 logger = logging.getLogger(__name__)
+
+
+def _describe_openai_error(exc: Exception) -> str:
+    """Turn an OpenAI client exception into a human-readable one-liner.
+
+    The OpenAI Python client wraps upstream HTTP failures in ``APIStatusError``
+    and network failures in ``APIConnectionError``. By default ``str(exc)``
+    just echoes the response body (e.g. the bare string ``404 page not
+    found`` that the Go proxy returns when the path doesn't route), which
+    doesn't tell you *which URL* was hit. This helper pulls the request URL,
+    HTTP method and status code off the exception so logs carry enough
+    context to diagnose "wrong base URL" / "wrong path" failures quickly.
+    """
+    try:
+        if isinstance(exc, APIStatusError):
+            req = getattr(exc, "request", None)
+            resp = getattr(exc, "response", None)
+            url = getattr(req, "url", None) if req is not None else None
+            method = getattr(req, "method", None) if req is not None else None
+            status = getattr(resp, "status_code", None) if resp is not None else None
+            body = ""
+            if resp is not None:
+                try:
+                    body = resp.text or ""
+                except Exception:  # noqa: BLE001
+                    body = ""
+                if len(body) > 300:
+                    body = body[:300] + "…"
+            parts = [f"{type(exc).__name__}"]
+            if method and url:
+                parts.append(f"{method} {url}")
+            elif url:
+                parts.append(str(url))
+            if status is not None:
+                parts.append(f"HTTP {status}")
+            if body:
+                parts.append(f"body={body!r}")
+            return " — ".join(parts)
+        if isinstance(exc, APIConnectionError):
+            req = getattr(exc, "request", None)
+            url = getattr(req, "url", None) if req is not None else None
+            cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+            return f"{type(exc).__name__} — {url or '<unknown url>'} — {cause or exc}"
+    except Exception:  # noqa: BLE001
+        pass
+    return f"{type(exc).__name__}: {exc}"
 
 def _env_str(name: str, default: str) -> str:
     """Read a string env var, treating empty string the same as unset."""
@@ -87,7 +133,13 @@ class PrivatemodeBackend:
         model: str = LLM_MODEL,
     ):
         self.model = model
+        self.base_url = base_url
         self.client = OpenAI(base_url=base_url, api_key=api_key)
+        logger.info(
+            "PrivatemodeBackend configured: base_url=%s model=%s api_key=%s",
+            base_url, model,
+            "<set>" if api_key and api_key != "dummy" else api_key or "<empty>",
+        )
 
     def _ocr_single(
         self,
@@ -125,7 +177,19 @@ class PrivatemodeBackend:
                 "json_schema": _OCR_JSON_SCHEMA,
             }
 
-        response = self.client.chat.completions.create(**kwargs)
+        try:
+            response = self.client.chat.completions.create(**kwargs)
+        except Exception as exc:
+            # Re-raise with a descriptive message so callers (and test
+            # fixtures) see the actual URL / status / body instead of just
+            # the bare HTTP error string.
+            detail = _describe_openai_error(exc)
+            logger.warning(
+                "LLM call failed: base_url=%s model=%s — %s",
+                self.base_url, self.model, detail,
+            )
+            raise RuntimeError(detail) from exc
+
         raw = response.choices[0].message.content
 
         if output_format == "json":

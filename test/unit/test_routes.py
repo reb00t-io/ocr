@@ -85,6 +85,30 @@ class TestDocs:
         assert "/doc" in body    # the page fetches /doc
         assert 'name="markdown-url" content="/doc"' in body
 
+    def test_diag_reports_llm_base_url(self, client, monkeypatch):
+        monkeypatch.setenv("LLM_BASE_URL", "http://proxy.example.com/v1")
+        monkeypatch.setenv("LLM_MODEL", "test-model")
+        monkeypatch.setenv("LLM_API_KEY", "k")
+        resp = client.get("/diag")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["llm"]["base_url"] == "http://proxy.example.com/v1"
+        assert data["llm"]["chat_completions_url"] == "http://proxy.example.com/v1/chat/completions"
+        assert data["llm"]["model"] == "test-model"
+        assert data["llm"]["api_key"] == "<set>"
+
+    def test_diag_redacts_secrets(self, client, monkeypatch):
+        monkeypatch.setenv("LLM_API_KEY", "super-secret")
+        monkeypatch.setenv("AUTH_PASSWORD", "hunter2")
+        monkeypatch.setenv("API_KEY", "api-secret")
+        resp = client.get("/diag", headers={"X-API-Key": "api-secret"})
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        # None of the actual secret values should appear in the response.
+        assert "super-secret" not in body
+        assert "hunter2" not in body
+        assert "api-secret" not in body
+
     def test_comparison_returns_markdown(self, client):
         resp = client.get("/comparison")
         assert resp.status_code == 200

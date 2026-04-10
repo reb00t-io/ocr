@@ -200,6 +200,47 @@ def health():
     })
 
 
+@app.get("/diag")
+def diag():
+    """Runtime config snapshot. Guarded by API_KEY (like /doc etc.).
+
+    Useful for answering "is LLM_BASE_URL set to what I think it is?"
+    from the deployed container without having to SSH in and read logs.
+    Secrets are redacted — we only report whether they're set.
+    """
+    def _flag(name: str) -> str:
+        v = os.environ.get(name) or ""
+        return "<set>" if v else "<unset>"
+
+    llm_base_url = os.environ.get("LLM_BASE_URL") or "<unset>"
+    derived_chat_url = (
+        llm_base_url.rstrip("/") + "/chat/completions"
+        if llm_base_url != "<unset>"
+        else "<unset>"
+    )
+
+    return jsonify({
+        "version": VERSION,
+        "deployed": DEPLOY_DATE,
+        "llm": {
+            "base_url": llm_base_url,
+            "model": os.environ.get("LLM_MODEL") or "<default>",
+            "api_key": _flag("LLM_API_KEY"),
+            "chat_completions_url": derived_chat_url,
+        },
+        "mistral": {
+            "model": os.environ.get("MISTRAL_OCR_MODEL") or "<default>",
+        },
+        "auth": {
+            "auth_password": _flag("AUTH_PASSWORD"),
+            "api_key":       _flag("API_KEY"),
+        },
+        "upload": {
+            "max_mb": _env_int("OCR_MAX_UPLOAD_MB", 50),
+        },
+    })
+
+
 if __name__ == "__main__":
     import uvicorn
     from asgiref.wsgi import WsgiToAsgi
