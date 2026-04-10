@@ -93,8 +93,9 @@ class DocumentInput:
 @dataclass
 class OutputOptions:
     format: Literal["markdown", "text", "json"] = "markdown"
-    tables: bool = False    # parse tables out of the markdown into structured rows
-    elements: bool = False  # emit a typed `elements[]` list per page
+    tables: bool = False           # parse tables out of the markdown into structured rows
+    elements: bool = False         # emit a typed `elements[]` list per page
+    describe_images: bool = False  # ask the VLM to add an "Image Descriptions" section
 
     @classmethod
     def from_dict(cls, d: dict | None) -> "OutputOptions":
@@ -109,7 +110,17 @@ class OutputOptions:
         elements = d.get("elements", False)
         if not isinstance(elements, bool):
             raise ValueError(f"output.elements must be a boolean, got: {type(elements).__name__}")
-        return cls(format=fmt, tables=tables, elements=elements)
+        describe_images = d.get("describe_images", False)
+        if not isinstance(describe_images, bool):
+            raise ValueError(
+                f"output.describe_images must be a boolean, got: {type(describe_images).__name__}"
+            )
+        return cls(
+            format=fmt,
+            tables=tables,
+            elements=elements,
+            describe_images=describe_images,
+        )
 
 
 @dataclass

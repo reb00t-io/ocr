@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from flask import Blueprint, jsonify, render_template, request
 
+from backends.mistral import MistralBackend, MistralNotConfigured
 from backends.privatemode import PrivatemodeBackend
 from backends.unstructured import (
     UnstructuredBackend,
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 demo_bp = Blueprint("demo", __name__)
 _backend = PrivatemodeBackend()
 _unstructured = UnstructuredBackend()
+_mistral = MistralBackend()
 
 PREVIEW_DPI = 144  # web preview — good visual quality, modest payload size
 OCR_DPI = 220      # higher resolution sent to the model for better OCR
@@ -100,6 +102,10 @@ def demo_process():
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 422
 
+    describe_images = (request.form.get("describe_images") or "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
     t_total_start = time.monotonic()
 
     # ---- Phase 1: render images at OCR resolution ------------------------
@@ -141,7 +147,14 @@ def demo_process():
         def _run(i: int, path: str) -> None:
             t0 = time.monotonic()
             try:
-                results[i] = {"index": i, **_backend._ocr_single(path, "markdown")}
+                results[i] = {
+                    "index": i,
+                    **_backend._ocr_single(
+                        path,
+                        "markdown",
+                        describe_images=describe_images,
+                    ),
+                }
             except Exception as exc:
                 logger.error("OCR failed for slot %d: %s", i, exc)
                 results[i] = {"index": i, "content": None, "error": str(exc)}
@@ -284,4 +297,89 @@ def demo_process_unstructured():
         "backend": "unstructured",
         "pages": pages,
         "stats": stats,
+    })
+
+
+@demo_bp.post("/demo/mistral")
+def demo_process_mistral():
+    """OCR via the Mistral OCR API.
+
+    Same input shape as `/demo/process`: multipart `file`, optional
+    `pages` (0-based, list or range string). Returns the same response
+    envelope so the viewer doesn't care which backend ran.
+    """
+    upload = request.files.get("file")
+    if upload is None or upload.filename == "":
+        return jsonify({"error": "No file uploaded"}), 400
+
+    raw = upload.read()
+    if not raw:
+        return jsonify({"error": "Empty file"}), 400
+
+    pages_str = (request.form.get("pages") or "").strip()
+    selection: list[int] | None = None
+    if pages_str:
+        try:
+            selection = _parse_pages(pages_str)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 422
+
+    if not _mistral.configured:
+        return jsonify({
+            "error": "MISTRAL_API_KEY is not set on the server. "
+                     "Add it to the environment to use the Mistral backend."
+        }), 503
+
+    t_total_start = time.monotonic()
+    content_type = _detect_content_type(raw)
+
+    # *** Single round trip — Mistral accepts the whole document inline as a
+    # base64 data URL and applies the page selection itself via the `pages`
+    # field. Do NOT introduce a per-page loop here. ***
+    logger.info(
+        "Mistral request: file=%r bytes=%d selection=%s (single upload)",
+        upload.filename, len(raw),
+        "all" if selection is None else selection,
+    )
+
+    t_ocr_start = time.monotonic()
+    try:
+        payload = _mistral.process(raw, content_type, pages=selection)
+    except MistralNotConfigured as exc:
+        return jsonify({"error": str(exc)}), 503
+    except Exception as exc:
+        logger.exception("Mistral backend failure")
+        return jsonify({"error": f"Mistral OCR error: {exc}"}), 502
+    ocr_wall_ms = int((time.monotonic() - t_ocr_start) * 1000)
+
+    # Mistral returns `pages: [{index, markdown, ...}]` already shaped
+    # close to ours; just normalise into the viewer envelope.
+    mistral_pages = payload.get("pages") or []
+    pages = []
+    for p in mistral_pages:
+        pages.append({
+            "index": p.get("index", 0),
+            "markdown": p.get("markdown") or "",
+            "error": None,
+            "ocr_ms": None,  # Mistral doesn't surface per-page timings
+        })
+
+    n = len(pages)
+    total_ms = int((time.monotonic() - t_total_start) * 1000)
+    stats = {
+        "total_ms": total_ms,
+        "render_ms": 0,                # Mistral does its own rasterisation
+        "ocr_wall_ms": ocr_wall_ms,
+        "ocr_sum_ms": ocr_wall_ms,
+        "ocr_avg_ms": int(ocr_wall_ms / n) if n else 0,
+        "ocr_max_ms": ocr_wall_ms,
+        "pages": n,
+    }
+
+    return jsonify({
+        "model": payload.get("model") or _mistral.model,
+        "backend": "mistral",
+        "pages": pages,
+        "stats": stats,
+        "usage_info": payload.get("usage_info"),
     })

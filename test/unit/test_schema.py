@@ -71,6 +71,18 @@ class TestOutputOptions:
         with pytest.raises(ValueError, match="elements"):
             OutputOptions.from_dict({"elements": 1})
 
+    def test_describe_images_default_false(self):
+        opt = OutputOptions.from_dict({})
+        assert opt.describe_images is False
+
+    def test_describe_images_true(self):
+        opt = OutputOptions.from_dict({"describe_images": True})
+        assert opt.describe_images is True
+
+    def test_describe_images_non_bool_raises(self):
+        with pytest.raises(ValueError, match="describe_images"):
+            OutputOptions.from_dict({"describe_images": "yes"})
+
 
 class TestOCRRequest:
     def _valid_payload(self, **overrides):

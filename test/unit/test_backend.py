@@ -112,13 +112,63 @@ class TestOcrSingle:
         text_part = create_mock.call_args.kwargs["messages"][0]["content"][1]
         assert "language" not in text_part["text"].lower()
 
+    @patch("backends.privatemode.encode_jpeg_image", return_value="base64data")
+    def test_describe_images_appends_section_instruction(self, mock_encode):
+        backend = _make_backend()
+        create_mock = MagicMock(return_value=_mock_completion("text"))
+        backend.client.chat.completions.create = create_mock
+
+        backend._ocr_single("/fake/image.jpg", "markdown", describe_images=True)
+
+        prompt = create_mock.call_args.kwargs["messages"][0]["content"][1]["text"]
+        assert "Image Descriptions" in prompt
+        assert "figures" in prompt.lower() or "images" in prompt.lower()
+
+    @patch("backends.privatemode.encode_jpeg_image", return_value="base64data")
+    def test_describe_images_default_off(self, mock_encode):
+        backend = _make_backend()
+        create_mock = MagicMock(return_value=_mock_completion("text"))
+        backend.client.chat.completions.create = create_mock
+
+        backend._ocr_single("/fake/image.jpg", "markdown")
+
+        prompt = create_mock.call_args.kwargs["messages"][0]["content"][1]["text"]
+        assert "Image Descriptions" not in prompt
+
+    @patch("backends.privatemode.encode_jpeg_image", return_value="base64data")
+    def test_describe_images_skipped_for_json_format(self, mock_encode):
+        backend = _make_backend()
+        import json as _json
+        create_mock = MagicMock(
+            return_value=_mock_completion(_json.dumps({"title": "", "content": "x", "sections": []}))
+        )
+        backend.client.chat.completions.create = create_mock
+
+        # JSON has a strict schema; the suffix would corrupt it.
+        backend._ocr_single("/fake/image.jpg", "json", describe_images=True)
+
+        prompt = create_mock.call_args.kwargs["messages"][0]["content"][1]["text"]
+        assert "Image Descriptions" not in prompt
+
+    @patch("backends.privatemode.encode_jpeg_image", return_value="base64data")
+    def test_describe_images_combines_with_language(self, mock_encode):
+        backend = _make_backend()
+        create_mock = MagicMock(return_value=_mock_completion("text"))
+        backend.client.chat.completions.create = create_mock
+
+        backend._ocr_single("/fake/image.jpg", "markdown", language="de", describe_images=True)
+
+        prompt = create_mock.call_args.kwargs["messages"][0]["content"][1]["text"]
+        assert "de" in prompt
+        assert "Image Descriptions" in prompt
+
 
 class TestProcessImages:
     @patch("backends.privatemode.encode_jpeg_image", return_value="b64")
     def test_results_in_original_order(self, mock_encode):
         backend = _make_backend()
 
-        def side_effect(path, fmt, language=None):
+        def side_effect(path, fmt, language=None, describe_images=False):
             return {"content": f"result-for-{path}"}
 
         backend._ocr_single = MagicMock(side_effect=side_effect)
@@ -134,7 +184,7 @@ class TestProcessImages:
     def test_failed_image_records_error(self, mock_encode):
         backend = _make_backend()
 
-        def side_effect(path, fmt, language=None):
+        def side_effect(path, fmt, language=None, describe_images=False):
             if "bad" in path:
                 raise RuntimeError("LLM timeout")
             return {"content": "ok"}

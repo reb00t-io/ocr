@@ -6,7 +6,7 @@ get back structured markdown, plain text, or extracted JSON.
 ## Requirements
 
 - Python 3.13
-- `poppler-utils` system package (for PDF support)
+- `poppler-utils` system package (for local PDF support)
 - Privatemode OCR credentials / model access (see configuration)
 
 ## Quick Start
@@ -106,6 +106,9 @@ plan.md               # Implementation plan and architecture notes
 ```
 
 ## Docker
+
+The container image installs `poppler-utils`, so PDF preview and OCR work without any extra host packages.
+Runtime settings such as `MISTRAL_API_KEY` are passed through from the shell that runs `docker compose up`.
 
 ```bash
 ./scripts/build.sh

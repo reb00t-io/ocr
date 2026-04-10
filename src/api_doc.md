@@ -52,6 +52,7 @@ provided.
 | `output.format`  | `"markdown"` \| `"text"` \| `"json"` | `"markdown"` | Output style.                                                               |
 | `output.tables`  | boolean                              | `false`      | If `true`, parse markdown tables out of each page and surface them as structured data under `pages[].tables[]`. The original markdown is still returned. |
 | `output.elements`| boolean                              | `false`      | If `true`, emit a typed `pages[].elements[]` list (`title`, `section_header`, `paragraph`, `list_item`, `code`, `table`, `blockquote`, `horizontal_rule`) parsed from the markdown. |
+| `output.describe_images` | boolean                      | `false`      | If `true`, the OCR prompt instructs the model to append a final `## Image Descriptions` section listing every figure / photo / chart / diagram in the page with a one-sentence description. Has no effect for `format=json` (the strict JSON schema doesn't allow extra prose). |
 | `id`             | string                               | —            | Optional client-supplied request id; echoed back in the response.           |
 | `language`       | string (BCP-47)                      | —            | Optional language hint (e.g. `"en"`, `"de"`, `"fr"`). Forwarded to the OCR prompt. |
 

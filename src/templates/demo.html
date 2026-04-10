@@ -319,6 +319,32 @@
       font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     }
     .range-group input::placeholder { color: #4d5468; }
+    .pill-toggle {
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s, opacity 0.15s;
+      white-space: nowrap;
+    }
+    .pill-toggle:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+    .pill-toggle.active {
+      background: linear-gradient(180deg, var(--accent), #5a7df0);
+      color: white;
+      border-color: var(--accent);
+      box-shadow: 0 4px 12px rgba(124,156,255,0.2);
+    }
+    .pill-toggle:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     button.go {
       padding: 7px 14px;
       border-radius: 8px;
@@ -390,7 +416,12 @@
     <div class="toggle" role="tablist" aria-label="ocr backend">
       <button id="backend-vlm"          class="active" type="button" data-backend="vlm">VLM</button>
       <button id="backend-unstructured"                type="button" data-backend="unstructured">Unstructured</button>
+      <button id="backend-mistral"                     type="button" data-backend="mistral">Mistral</button>
     </div>
+    <button id="describe-images" class="pill-toggle" type="button"
+            title="Ask the model to describe figures and images in a final section (VLM only)">
+      Describe&nbsp;images
+    </button>
     <button id="go" class="go" type="button" disabled>Run OCR</button>
     <div class="toggle" role="tablist" aria-label="markdown view">
       <button id="view-rendered" class="active" type="button">Rendered</button>
@@ -467,28 +498,67 @@
     const rangeGroup = document.getElementById("range-group");
     const rangeInput = document.getElementById("range-input");
     const goBtn = document.getElementById("go");
-    const backendVlmBtn = document.getElementById("backend-vlm");
+    const backendVlmBtn          = document.getElementById("backend-vlm");
     const backendUnstructuredBtn = document.getElementById("backend-unstructured");
+    const backendMistralBtn      = document.getElementById("backend-mistral");
+    const describeImagesBtn      = document.getElementById("describe-images");
 
     const BACKEND_ENDPOINTS = {
       vlm:          "/demo/process",
       unstructured: "/demo/unstructured",
+      mistral:      "/demo/mistral",
+    };
+    const BACKEND_BUTTONS = {
+      vlm:          backendVlmBtn,
+      unstructured: backendUnstructuredBtn,
+      mistral:      backendMistralBtn,
+    };
+    const BACKEND_LABELS = {
+      vlm:          "VLM",
+      unstructured: "Unstructured",
+      mistral:      "Mistral",
     };
 
     let viewMode = "rendered";       // "rendered" | "source"
-    let backend = "vlm";             // "vlm" | "unstructured"
+    let backend = "vlm";             // "vlm" | "unstructured" | "mistral"
+    let describeImages = false;      // VLM-only feature
     let chosenFile = null;           // current File object
     let pageData = [];               // [{index, image, markdown?, error?, ocr_ms?}]
     let inflight = null;             // AbortController for the active request
 
+    function refreshDescribeImagesUi() {
+      // Image-description prompts only work with the VLM backend; for the
+      // other providers we hand off to a remote API and can't tweak the
+      // prompt, so disable (and visually deactivate) the toggle.
+      const enabled = backend === "vlm";
+      describeImagesBtn.disabled = !enabled;
+      describeImagesBtn.title = enabled
+        ? "Toggle: ask the model to describe figures and images in a final section"
+        : "Image descriptions are only available with the VLM backend";
+      // Force the visual state to reflect whether it'll be sent on the next
+      // request. The user's intent (`describeImages`) is preserved across
+      // backend toggles so flipping VLM → Mistral → VLM keeps the choice.
+      describeImagesBtn.classList.toggle("active", enabled && describeImages);
+    }
+
     function setBackend(name) {
       if (!(name in BACKEND_ENDPOINTS) || name === backend) return;
       backend = name;
-      backendVlmBtn.classList.toggle("active",          name === "vlm");
-      backendUnstructuredBtn.classList.toggle("active", name === "unstructured");
+      for (const [k, btn] of Object.entries(BACKEND_BUTTONS)) {
+        btn.classList.toggle("active", k === name);
+      }
+      refreshDescribeImagesUi();
     }
-    backendVlmBtn.addEventListener("click",          () => setBackend("vlm"));
-    backendUnstructuredBtn.addEventListener("click", () => setBackend("unstructured"));
+    for (const [k, btn] of Object.entries(BACKEND_BUTTONS)) {
+      btn.addEventListener("click", () => setBackend(k));
+    }
+
+    describeImagesBtn.addEventListener("click", () => {
+      if (describeImagesBtn.disabled) return;
+      describeImages = !describeImages;
+      refreshDescribeImagesUi();
+    });
+    refreshDescribeImagesUi();
 
     function fmtMs(ms) {
       if (ms == null) return "—";
@@ -734,13 +804,16 @@
       rangeGroup.classList.add("disabled");
       status.classList.remove("err");
       const targetCount = targetSet === null ? pageData.length : targetSet.size;
-      const backendLabel = backend === "unstructured" ? "Unstructured" : "VLM";
+      const backendLabel = BACKEND_LABELS[backend] || backend;
       status.innerHTML = `<span class="spinner"></span>Running ${backendLabel} on ${targetCount} page${targetCount === 1 ? "" : "s"}…`;
       statsBar.classList.remove("visible");
 
       const fd = new FormData();
       fd.append("file", file);
       if (apiRange) fd.append("pages", apiRange);
+      if (backend === "vlm" && describeImages) {
+        fd.append("describe_images", "true");
+      }
 
       try {
         const resp = await fetch(BACKEND_ENDPOINTS[backend], {
@@ -773,7 +846,10 @@
         });
         renderPages();
         renderStats(data.stats);
-        const tag = data.backend === "unstructured" ? "Unstructured" : `VLM (${data.model})`;
+        let tag;
+        if      (data.backend === "unstructured") tag = "Unstructured";
+        else if (data.backend === "mistral")      tag = `Mistral (${data.model || "mistral-ocr-latest"})`;
+        else                                       tag = `VLM (${data.model})`;
         status.textContent = `Done — ${data.pages.length} page${data.pages.length === 1 ? "" : "s"} via ${tag}`;
       } catch (e) {
         if (e.name === "AbortError") return;

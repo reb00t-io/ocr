@@ -20,12 +20,15 @@ def client():
 
     counter = {"i": 0}
 
-    def fake_ocr_single(self, image_path, output_format, language=None):
+    def fake_ocr_single(self, image_path, output_format, language=None, describe_images=False):
         i = counter["i"]
         counter["i"] += 1
-        _last_calls.append(
-            {"path": image_path, "format": output_format, "language": language}
-        )
+        _last_calls.append({
+            "path": image_path,
+            "format": output_format,
+            "language": language,
+            "describe_images": describe_images,
+        })
         if _canned_content:
             content = _canned_content[i % len(_canned_content)]
         else:
@@ -145,6 +148,23 @@ class TestOcrImageRoute:
         resp = client.post("/v1/ocr", json=payload)
         assert resp.status_code == 200
         assert _last_calls[-1]["language"] is None
+
+    def test_describe_images_passed_to_backend(self, client):
+        payload = {
+            "images": [{"type": "base64", "value": base64.b64encode(_png_bytes()).decode()}],
+            "output": {"format": "markdown", "describe_images": True},
+        }
+        resp = client.post("/v1/ocr", json=payload)
+        assert resp.status_code == 200
+        assert _last_calls[-1]["describe_images"] is True
+
+    def test_describe_images_default_false(self, client):
+        payload = {
+            "images": [{"type": "base64", "value": base64.b64encode(_png_bytes()).decode()}],
+        }
+        resp = client.post("/v1/ocr", json=payload)
+        assert resp.status_code == 200
+        assert _last_calls[-1]["describe_images"] is False
 
     def test_empty_body_returns_400(self, client):
         resp = client.post("/v1/ocr", data="", content_type="application/json")

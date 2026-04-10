@@ -92,7 +92,15 @@ def ocr():
         def _run(i: int, path: str) -> None:
             t0 = time.monotonic()
             try:
-                page_results[i] = {"index": i, **_backend._ocr_single(path, req.output.format, req.language)}
+                page_results[i] = {
+                    "index": i,
+                    **_backend._ocr_single(
+                        path,
+                        req.output.format,
+                        req.language,
+                        req.output.describe_images,
+                    ),
+                }
             except Exception as exc:
                 logger.error("OCR failed for index %d: %s", i, exc)
                 page_results[i] = {"index": i, "content": None, "error": str(exc)}

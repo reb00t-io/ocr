@@ -4,11 +4,11 @@ A side-by-side look at five document-OCR offerings:
 
 | | API | Style |
 |---|---|---|
-| 1 | **This service** (`POST /v1/ocr`) | Self-hosted, LLM-driven, markdown-first |
-| 2 | **Mistral OCR** (`POST /v1/ocr` on `api.mistral.ai`) | Hosted, LLM-driven, markdown-first |
-| 3 | **Google Cloud Document AI — Enterprise Document OCR** (`processors/{id}:process`) | Hosted, classical CV + layout, geometry-first |
-| 4 | **Unstructured** (`POST /general/v0/general` on `api.unstructuredapp.io`, also self-host via `unstructured-io/unstructured-api`) | Mostly hosted, element-typed output |
-| 5 | **Docling** (Python library + `docling-serve` REST) | Self-hosted, classical layout + OCR, markdown-first |
+| 1 | **This service** (`POST /v1/ocr`) | LLM-driven, markdown-first |
+| 2 | **Mistral OCR** (`POST /v1/ocr` on `api.mistral.ai`) | LLM-driven, markdown-first |
+| 3 | **Google Cloud Document AI — Enterprise Document OCR** (`processors/{id}:process`) | classical CV + layout, geometry-first |
+| 4 | **Unstructured** (`POST /general/v0/general`) | element-typed output |
+| 5 | **Docling** (Python library + `docling-serve` REST) | classical layout + OCR, markdown-first |
 
 The first three are *managed* APIs (you POST to someone else's
 infrastructure, or to ours); the last two are open-source projects you
@@ -804,6 +804,50 @@ Some context for the totals:
   layout-aware model or the hybrid Docling backend (§5.3 #13). That
   hybrid-backend item is still the single most impactful next
   step — it would close most of the remaining gap in one move.
+
+## 4.1 Timing and quality spot checks
+
+Quality is recorded on a 0–100 scale from manual inspection of the
+output for the sample document.
+
+<table>
+  <thead>
+    <tr>
+      <th rowspan="2">Service</th>
+      <th colspan="2" style="text-align: right;">Receipt with tables</th>
+      <th colspan="2" style="text-align: right;">two_col.pdf</th>
+    </tr>
+    <tr>
+      <th style="text-align: right;">Quality</th>
+      <th style="text-align: right;">Time</th>
+      <th style="text-align: right;">Quality</th>
+      <th style="text-align: right;">Time</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Ours</td>
+      <td style="text-align: right;">100</td>
+      <td style="text-align: right;">11s</td>
+      <td style="text-align: right;">95</td>
+      <td style="text-align: right;">22s</td>
+    </tr>
+    <tr>
+      <td>Mistral</td>
+      <td style="text-align: right;">100</td>
+      <td style="text-align: right;">1.9s</td>
+      <td style="text-align: right;">90</td>
+      <td style="text-align: right;">2.3s</td>
+    </tr>
+    <tr>
+      <td>Unstructured</td>
+      <td style="text-align: right;">30</td>
+      <td style="text-align: right;">0.3s</td>
+      <td style="text-align: right;">30</td>
+      <td style="text-align: right;">0.5s</td>
+    </tr>
+  </tbody>
+</table>
 
 ---
 
