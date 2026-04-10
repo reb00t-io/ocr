@@ -15,6 +15,9 @@ dependencies = [
   "flask==3.1.2",
   "uvicorn==0.40.0",
   "asgiref==3.11.1",
+  "openai>=1.0.0",
+  "pillow>=11.0.0",
+  "pdf2image>=1.17.0",
 ]
 
 [project.scripts]
@@ -29,4 +32,10 @@ exclude = ["tests*", "docs*"]
 [project.optional-dependencies]
 dev = [
   "pytest>=8.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+markers = [
+  "integration: requires a running LLM server at localhost:8080",
 ]

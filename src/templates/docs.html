@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OCR API Docs</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #161a22;
+      --panel-2: #1c212c;
+      --border: #262c3a;
+      --text: #e6e9ef;
+      --muted: #8a93a6;
+      --accent: #7c9cff;
+      --accent-2: #b388ff;
+      --shadow: 0 10px 30px rgba(0,0,0,0.45);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+      background: radial-gradient(1200px 800px at 20% -10%, #1d2333 0%, var(--bg) 60%) fixed;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 14px 22px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15,17,21,0.85);
+      backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+    .brand {
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .brand .dot { color: var(--accent-2); -webkit-text-fill-color: var(--accent-2); }
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      transition: color 0.15s, background 0.15s;
+    }
+    nav a:hover { color: var(--text); background: var(--panel-2); }
+    nav a.active { color: var(--text); background: var(--panel-2); }
+    .raw-link {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--muted);
+      text-decoration: none;
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel-2);
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .raw-link:hover { border-color: var(--accent); color: var(--text); }
+
+    main {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      padding: 36px 24px 80px;
+    }
+    article {
+      width: 100%;
+      max-width: 880px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 36px 44px;
+      line-height: 1.6;
+      font-size: 15px;
+      color: #dce0ea;
+    }
+
+    article h1, article h2, article h3, article h4 {
+      color: #fff;
+      letter-spacing: -0.01em;
+    }
+    article h1 {
+      font-size: 1.9em;
+      margin: 0 0 0.4em;
+      padding-bottom: 0.4em;
+      border-bottom: 1px solid var(--border);
+    }
+    article h2 {
+      font-size: 1.4em;
+      margin-top: 1.6em;
+      padding-top: 0.4em;
+    }
+    article h3 { font-size: 1.15em; margin-top: 1.4em; }
+    article h4 { font-size: 1em; margin-top: 1.2em; color: var(--muted); }
+    article p { margin: 0.7em 0; }
+    article a { color: var(--accent); text-decoration: none; }
+    article a:hover { text-decoration: underline; }
+    article hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 1.8em 0;
+    }
+    article ul, article ol { padding-left: 1.4em; }
+    article li { margin: 0.25em 0; }
+    article code {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.88em;
+      background: #0a0d14;
+      border: 1px solid var(--border);
+      padding: 1px 6px;
+      border-radius: 5px;
+    }
+    article pre {
+      background: #0a0d14;
+      border: 1px solid var(--border);
+      padding: 14px 18px;
+      border-radius: 10px;
+      overflow-x: auto;
+    }
+    article pre code {
+      background: transparent;
+      border: none;
+      padding: 0;
+      font-size: 0.92em;
+    }
+    article table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1em 0;
+      font-size: 0.95em;
+    }
+    article th, article td {
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+    article th { background: #1a2030; color: #fff; }
+    article tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+    article blockquote {
+      margin: 1em 0;
+      padding: 4px 16px;
+      border-left: 3px solid var(--accent);
+      color: var(--muted);
+      background: rgba(124,156,255,0.05);
+      border-radius: 4px;
+    }
+
+    .loading {
+      text-align: center;
+      color: var(--muted);
+      padding: 60px 0;
+    }
+    .err {
+      color: #ff9aa2;
+      background: #2a1518;
+      border: 1px solid #5a2a2e;
+      padding: 14px 16px;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">OCR<span class="dot">·</span>Viewer</div>
+    <nav>
+      <a href="/demo">Viewer</a>
+      <a href="/docs" class="active">API Docs</a>
+    </nav>
+    <a class="raw-link" href="/doc">View raw markdown ↗</a>
+  </header>
+
+  <main>
+    <article id="doc"><div class="loading">Loading…</div></article>
+  </main>
+
+  <script>
+    (async () => {
+      const target = document.getElementById("doc");
+      try {
+        const resp = await fetch("/doc", { headers: { accept: "text/markdown" } });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const md = await resp.text();
+        target.innerHTML = marked.parse(md);
+        // If the URL has a #fragment, scroll to it after render.
+        if (location.hash) {
+          const el = document.querySelector(location.hash);
+          if (el) el.scrollIntoView({ behavior: "auto", block: "start" });
+        }
+      } catch (e) {
+        target.innerHTML = `<div class="err">Failed to load /doc: ${e.message}</div>`;
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OCR Viewer</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #161a22;
+      --panel-2: #1c212c;
+      --border: #262c3a;
+      --text: #e6e9ef;
+      --muted: #8a93a6;
+      --accent: #7c9cff;
+      --accent-2: #b388ff;
+      --danger: #ff6b6b;
+      --shadow: 0 10px 30px rgba(0,0,0,0.45);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+      background: radial-gradient(1200px 800px at 20% -10%, #1d2333 0%, var(--bg) 60%) fixed;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      padding: 14px 22px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15,17,21,0.85);
+      backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .brand {
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .brand .dot { color: var(--accent-2); -webkit-text-fill-color: var(--accent-2); }
+    label.upload {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #2a3346, #1f2636);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      font-size: 13px;
+      transition: transform 0.05s ease, border-color 0.2s;
+    }
+    label.upload:hover { border-color: var(--accent); }
+    label.upload:active { transform: translateY(1px); }
+    input[type=file] { display: none; }
+    button.primary {
+      padding: 8px 16px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: white;
+      background: linear-gradient(180deg, var(--accent), #5a7df0);
+      box-shadow: 0 6px 16px rgba(124,156,255,0.25);
+      transition: filter 0.15s, transform 0.05s;
+    }
+    button.primary:hover { filter: brightness(1.08); }
+    button.primary:active { transform: translateY(1px); }
+    button.primary:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      filter: grayscale(0.4);
+    }
+    .status {
+      color: var(--muted);
+      font-size: 13px;
+      margin-left: auto;
+    }
+    .status.err { color: var(--danger); }
+
+    .nav-link {
+      font-size: 12px;
+      color: var(--muted);
+      text-decoration: none;
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel-2);
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .nav-link:hover { border-color: var(--accent); color: var(--text); }
+
+    .stats {
+      display: none;
+      gap: 10px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(22,26,34,0.6);
+      backdrop-filter: blur(8px);
+      flex-wrap: wrap;
+    }
+    .stats.visible { display: flex; }
+    .stat {
+      flex: 1 1 160px;
+      min-width: 160px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: linear-gradient(180deg, #1c2230, #161b27);
+      border: 1px solid var(--border);
+    }
+    .stat .label {
+      font-size: 10.5px;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .stat .value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat .sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    main {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 14px;
+    }
+    main::-webkit-scrollbar { width: 12px; }
+    main::-webkit-scrollbar-track { background: transparent; }
+    main::-webkit-scrollbar-thumb {
+      background: #2c3346; border-radius: 8px; border: 3px solid var(--bg);
+    }
+
+    .page-frame {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin: 0 auto 18px;
+      overflow: hidden;
+    }
+    .page-frame:last-child { margin-bottom: 4px; }
+    .page-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      font-size: 11px;
+      letter-spacing: 0.7px;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--panel-2);
+    }
+    .page-head .timing { font-variant-numeric: tabular-nums; }
+    .page-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: stretch;
+      gap: 0;
+    }
+    .page-col {
+      padding: 16px;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .page-col + .page-col {
+      border-left: 1px solid var(--border);
+    }
+    .page-col img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+      background: white;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    }
+    .markdown {
+      line-height: 1.55;
+      font-size: 14.5px;
+      color: #dce0ea;
+      overflow-wrap: anywhere;
+    }
+    .markdown h1, .markdown h2, .markdown h3 { margin-top: 0.8em; color: #fff; }
+    .markdown h1 { font-size: 1.55em; }
+    .markdown h2 { font-size: 1.3em; }
+    .markdown h3 { font-size: 1.12em; }
+    .markdown p { margin: 0.6em 0; }
+    .markdown pre, .markdown code {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.9em;
+    }
+    .markdown pre {
+      background: #0a0d14;
+      border: 1px solid var(--border);
+      padding: 12px 14px;
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+    .markdown table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.8em 0;
+    }
+    .markdown th, .markdown td {
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      text-align: left;
+    }
+    .markdown th { background: #1a2030; }
+    .md-image-placeholder {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 10px;
+      margin: 2px 0;
+      background: #1a2030;
+      border: 1px dashed #3a4358;
+      border-radius: 6px;
+      color: #8a93a6;
+      font-size: 0.85em;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+      vertical-align: middle;
+    }
+    .md-image-placeholder::before { content: "🖼"; font-size: 0.95em; }
+    .source-view {
+      white-space: pre-wrap;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #cdd3e0;
+      background: #0a0d14;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      overflow-wrap: anywhere;
+    }
+    .err-box {
+      border: 1px solid #5a2a2e;
+      background: #2a1518;
+      color: #ff9aa2;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: ui-monospace, monospace;
+    }
+
+    .toggle {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--panel-2);
+    }
+    .toggle button {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      padding: 7px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .toggle button + button { border-left: 1px solid var(--border); }
+    .toggle button:hover { color: var(--text); }
+    .toggle button.active {
+      background: linear-gradient(180deg, var(--accent), #5a7df0);
+      color: white;
+    }
+
+    .range-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 4px 4px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel-2);
+      transition: border-color 0.15s;
+    }
+    .range-group:focus-within { border-color: var(--accent); }
+    .range-group.disabled { opacity: 0.45; pointer-events: none; }
+    .range-group label {
+      font-size: 11px;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .range-group input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 13px;
+      width: 130px;
+      font-variant-numeric: tabular-nums;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .range-group input::placeholder { color: #4d5468; }
+    button.go {
+      padding: 7px 14px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: white;
+      background: linear-gradient(180deg, var(--accent), #5a7df0);
+      box-shadow: 0 4px 12px rgba(124,156,255,0.25);
+      transition: filter 0.15s, transform 0.05s, opacity 0.15s;
+    }
+    button.go:hover { filter: brightness(1.08); }
+    button.go:active { transform: translateY(1px); }
+    button.go:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      filter: grayscale(0.4);
+    }
+
+    .placeholder-pane {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+      padding: 24px;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      min-height: 100px;
+    }
+    .placeholder-pane.busy { color: var(--accent); border-style: solid; }
+
+    .empty {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 14px;
+      text-align: center;
+      padding: 60px 30px;
+    }
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      display: inline-block;
+      vertical-align: -3px;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">OCR<span class="dot">·</span>Viewer</div>
+    <label class="upload">
+      <span>Choose PDF</span>
+      <input id="file" type="file" accept="application/pdf,image/*">
+    </label>
+    <div id="range-group" class="range-group disabled">
+      <label for="range-input">Pages</label>
+      <input id="range-input" type="text" placeholder="all" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="toggle" role="tablist" aria-label="ocr backend">
+      <button id="backend-vlm"          class="active" type="button" data-backend="vlm">VLM</button>
+      <button id="backend-unstructured"                type="button" data-backend="unstructured">Unstructured</button>
+    </div>
+    <button id="go" class="go" type="button" disabled>Run OCR</button>
+    <div class="toggle" role="tablist" aria-label="markdown view">
+      <button id="view-rendered" class="active" type="button">Rendered</button>
+      <button id="view-source" type="button">Source</button>
+    </div>
+    <div id="status" class="status">Pick a PDF to begin.</div>
+    <a class="nav-link" href="/docs">API Docs ↗</a>
+  </header>
+
+  <div id="stats" class="stats">
+    <div class="stat">
+      <div class="label">Total</div>
+      <div class="value" id="stat-total">—</div>
+      <div class="sub" id="stat-total-sub">end-to-end</div>
+    </div>
+    <div class="stat">
+      <div class="label">PDF → Images</div>
+      <div class="value" id="stat-render">—</div>
+      <div class="sub" id="stat-render-sub">rendering</div>
+    </div>
+    <div class="stat">
+      <div class="label">OCR Total</div>
+      <div class="value" id="stat-ocr-total">—</div>
+      <div class="sub" id="stat-ocr-total-sub">wall-clock</div>
+    </div>
+    <div class="stat">
+      <div class="label">OCR Avg / page</div>
+      <div class="value" id="stat-ocr-avg">—</div>
+      <div class="sub" id="stat-ocr-avg-sub">mean</div>
+    </div>
+    <div class="stat">
+      <div class="label">OCR Max / page</div>
+      <div class="value" id="stat-ocr-max">—</div>
+      <div class="sub" id="stat-ocr-max-sub">slowest page</div>
+    </div>
+  </div>
+
+  <main id="main">
+    <div class="empty" id="initial-empty">Choose a PDF to begin.</div>
+  </main>
+
+  <script>
+    // The OCR model occasionally hallucinates image URLs (imgur, example.com…)
+    // when it encounters figures in the source document. Override marked's
+    // image renderer so we never actually fetch them — show a labelled
+    // placeholder instead. Handles both the legacy (positional args) and
+    // current (single-object args) marked.js renderer signatures.
+    marked.use({
+      renderer: {
+        image(hrefOrObj, title, text) {
+          let href, label;
+          if (typeof hrefOrObj === "object" && hrefOrObj !== null) {
+            href  = hrefOrObj.href;
+            label = hrefOrObj.text || hrefOrObj.title || "image";
+          } else {
+            href  = hrefOrObj;
+            label = text || title || "image";
+          }
+          const safeHref  = String(href || "").replace(/[<>"']/g, "");
+          const safeLabel = String(label).replace(/[&<>"']/g, (c) => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+          })[c]);
+          return `<span class="md-image-placeholder" title="${safeHref}">${safeLabel}</span>`;
+        }
+      }
+    });
+
+    const fileInput = document.getElementById("file");
+    const status = document.getElementById("status");
+    const main = document.getElementById("main");
+    const statsBar = document.getElementById("stats");
+    const viewRenderedBtn = document.getElementById("view-rendered");
+    const viewSourceBtn = document.getElementById("view-source");
+    const rangeGroup = document.getElementById("range-group");
+    const rangeInput = document.getElementById("range-input");
+    const goBtn = document.getElementById("go");
+    const backendVlmBtn = document.getElementById("backend-vlm");
+    const backendUnstructuredBtn = document.getElementById("backend-unstructured");
+
+    const BACKEND_ENDPOINTS = {
+      vlm:          "/demo/process",
+      unstructured: "/demo/unstructured",
+    };
+
+    let viewMode = "rendered";       // "rendered" | "source"
+    let backend = "vlm";             // "vlm" | "unstructured"
+    let chosenFile = null;           // current File object
+    let pageData = [];               // [{index, image, markdown?, error?, ocr_ms?}]
+    let inflight = null;             // AbortController for the active request
+
+    function setBackend(name) {
+      if (!(name in BACKEND_ENDPOINTS) || name === backend) return;
+      backend = name;
+      backendVlmBtn.classList.toggle("active",          name === "vlm");
+      backendUnstructuredBtn.classList.toggle("active", name === "unstructured");
+    }
+    backendVlmBtn.addEventListener("click",          () => setBackend("vlm"));
+    backendUnstructuredBtn.addEventListener("click", () => setBackend("unstructured"));
+
+    function fmtMs(ms) {
+      if (ms == null) return "—";
+      if (ms < 1000) return `${ms} ms`;
+      return `${(ms / 1000).toFixed(2)} s`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      })[c]);
+    }
+
+    function renderStats(s) {
+      if (!s) { statsBar.classList.remove("visible"); return; }
+      document.getElementById("stat-total").textContent = fmtMs(s.total_ms);
+      document.getElementById("stat-total-sub").textContent = `${s.pages} page${s.pages === 1 ? "" : "s"}`;
+      document.getElementById("stat-render").textContent = fmtMs(s.render_ms);
+      document.getElementById("stat-render-sub").textContent =
+        s.pages ? `${fmtMs(Math.round(s.render_ms / s.pages))} / page` : "rendering";
+      document.getElementById("stat-ocr-total").textContent = fmtMs(s.ocr_wall_ms);
+      document.getElementById("stat-ocr-total-sub").textContent = `${fmtMs(s.ocr_sum_ms)} cpu`;
+      document.getElementById("stat-ocr-avg").textContent = fmtMs(s.ocr_avg_ms);
+      document.getElementById("stat-ocr-avg-sub").textContent = "mean";
+      document.getElementById("stat-ocr-max").textContent = fmtMs(s.ocr_max_ms);
+      document.getElementById("stat-ocr-max-sub").textContent = "slowest page";
+      statsBar.classList.add("visible");
+    }
+
+    // Some models wrap their entire reply in a single ```markdown ... ``` fence.
+    // If we hand that to marked.parse() it shows up as one giant code block.
+    // Strip the outer fence before rendering. Source view keeps the raw text.
+    function unwrapOuterFence(md) {
+      if (!md) return md;
+      const trimmed = md.trim();
+      const m = trimmed.match(/^```([A-Za-z0-9_+-]*)\r?\n([\s\S]*?)\r?\n?```$/);
+      if (!m) return md;
+      const inner = m[2];
+      // Only unwrap if the inner part has no closing fence of its own — i.e.
+      // the whole reply really is one fenced block, not two adjacent ones.
+      if (/^```/m.test(inner)) return md;
+      return inner;
+    }
+
+    function markdownBody(md) {
+      if (viewMode === "source") {
+        return `<div class="source-view">${escapeHtml(md || "")}</div>`;
+      }
+      const unwrapped = unwrapOuterFence(md);
+      return `<div class="markdown">${marked.parse(unwrapped || "*(empty)*")}</div>`;
+    }
+
+    function renderPages() {
+      if (!pageData.length) {
+        main.innerHTML = `<div class="empty">No pages.</div>`;
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      pageData.forEach((p) => {
+        const frame = document.createElement("div");
+        frame.className = "page-frame";
+        const timing = p.ocr_ms != null ? fmtMs(p.ocr_ms) : "";
+        let body;
+        if (p.error) {
+          body = `<div class="err-box">OCR failed: ${escapeHtml(p.error)}</div>`;
+        } else if (typeof p.markdown === "string") {
+          body = markdownBody(p.markdown);
+        } else if (p.busy) {
+          body = `<div class="placeholder-pane busy"><span class="spinner"></span>OCR running…</div>`;
+        } else {
+          body = `<div class="placeholder-pane">Not OCR'd yet.<br>Adjust the range above and click <b>Run OCR</b>.</div>`;
+        }
+        frame.innerHTML = `
+          <div class="page-head">
+            <span>Page ${p.index + 1}</span>
+            <span class="timing">${timing}</span>
+          </div>
+          <div class="page-row">
+            <div class="page-col"><img src="${p.image}" alt="page ${p.index + 1}"></div>
+            <div class="page-col">${body}</div>
+          </div>
+        `;
+        frag.appendChild(frame);
+      });
+      main.innerHTML = "";
+      main.appendChild(frag);
+    }
+
+    function setViewMode(mode) {
+      if (mode === viewMode) return;
+      viewMode = mode;
+      viewRenderedBtn.classList.toggle("active", mode === "rendered");
+      viewSourceBtn.classList.toggle("active", mode === "source");
+      if (pageData.length) renderPages();
+    }
+
+    viewRenderedBtn.addEventListener("click", () => setViewMode("rendered"));
+    viewSourceBtn.addEventListener("click", () => setViewMode("source"));
+
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0] || null;
+      if (file) loadPreview(file);
+    });
+
+    goBtn.addEventListener("click", () => {
+      if (chosenFile) runOcr(chosenFile);
+    });
+    rangeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !goBtn.disabled) runOcr(chosenFile);
+    });
+
+    // ---------- step 1: upload → preview only ----------
+    async function loadPreview(file) {
+      if (inflight) inflight.abort();
+      inflight = new AbortController();
+
+      chosenFile = file;
+      pageData = [];
+      goBtn.disabled = true;
+      rangeGroup.classList.add("disabled");
+      rangeInput.value = "";
+      statsBar.classList.remove("visible");
+      status.classList.remove("err");
+      status.innerHTML = `<span class="spinner"></span>Rendering ${escapeHtml(file.name)}…`;
+      main.innerHTML = `<div class="empty"><span class="spinner"></span>Rendering pages…</div>`;
+
+      const fd = new FormData();
+      fd.append("file", file);
+
+      try {
+        const resp = await fetch("/demo/preview", {
+          method: "POST",
+          body: fd,
+          signal: inflight.signal,
+        });
+        if (!resp.ok) {
+          const ct = resp.headers.get("content-type") || "";
+          const msg = ct.includes("json") ? (await resp.json()).error : await resp.text();
+          throw new Error(msg || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        pageData = (data.pages || []).map((p) => ({
+          index: p.index,
+          image: p.image,
+          markdown: undefined,
+          error: undefined,
+          ocr_ms: undefined,
+        }));
+        renderPages();
+
+        const n = pageData.length;
+        rangeInput.placeholder = n === 1 ? "1" : `1-${n}`;
+        rangeInput.value = "";   // empty = all pages
+        rangeGroup.classList.remove("disabled");
+        goBtn.disabled = false;
+        status.textContent = `Loaded ${n} page${n === 1 ? "" : "s"}. Set a range or leave empty for all, then click Run OCR.`;
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        chosenFile = null;
+        status.classList.add("err");
+        status.textContent = `Error: ${e.message}`;
+        main.innerHTML = `<div class="empty">—</div>`;
+      } finally {
+        inflight = null;
+      }
+    }
+
+    // ---------- 1-based UI range → 0-based API range ----------
+    // Returns "" for empty input (= all pages) or throws on garbage.
+    function uiRangeToApi(uiRange, numPages) {
+      const trimmed = (uiRange || "").trim();
+      if (!trimmed) return "";
+      const parts = trimmed.split(",").map((s) => s.trim()).filter(Boolean);
+      const out = [];
+      for (const part of parts) {
+        if (part.includes("-")) {
+          const [a, b] = part.split("-").map((s) => s.trim());
+          const start = parseInt(a, 10);
+          const end   = parseInt(b, 10);
+          if (!Number.isFinite(start) || !Number.isFinite(end)) {
+            throw new Error(`Invalid page range: "${part}"`);
+          }
+          if (start < 1 || end > numPages) {
+            throw new Error(`Range "${part}" is outside 1–${numPages}`);
+          }
+          if (end < start) {
+            throw new Error(`Range "${part}" is reversed`);
+          }
+          out.push(`${start - 1}-${end - 1}`);
+        } else {
+          const n = parseInt(part, 10);
+          if (!Number.isFinite(n)) throw new Error(`Invalid page: "${part}"`);
+          if (n < 1 || n > numPages) {
+            throw new Error(`Page ${n} is outside 1–${numPages}`);
+          }
+          out.push(String(n - 1));
+        }
+      }
+      return out.join(",");
+    }
+
+    // Returns the set of 0-based page indices the user is asking for, or
+    // null for "all pages".
+    function expandRange(apiRangeStr) {
+      if (!apiRangeStr) return null;
+      const indices = new Set();
+      apiRangeStr.split(",").forEach((part) => {
+        if (part.includes("-")) {
+          const [a, b] = part.split("-").map(Number);
+          for (let i = a; i <= b; i++) indices.add(i);
+        } else {
+          indices.add(Number(part));
+        }
+      });
+      return indices;
+    }
+
+    // ---------- step 2: run OCR with the chosen range ----------
+    async function runOcr(file) {
+      if (!file) return;
+      let apiRange;
+      try {
+        apiRange = uiRangeToApi(rangeInput.value, pageData.length);
+      } catch (e) {
+        status.classList.add("err");
+        status.textContent = `Error: ${e.message}`;
+        return;
+      }
+
+      const targetSet = expandRange(apiRange);   // null = all
+      // Mark target pages busy, clear previous OCR for them.
+      pageData = pageData.map((p) => {
+        if (targetSet === null || targetSet.has(p.index)) {
+          return { ...p, busy: true, markdown: undefined, error: undefined, ocr_ms: undefined };
+        }
+        return p;
+      });
+      renderPages();
+
+      if (inflight) inflight.abort();
+      inflight = new AbortController();
+      goBtn.disabled = true;
+      rangeGroup.classList.add("disabled");
+      status.classList.remove("err");
+      const targetCount = targetSet === null ? pageData.length : targetSet.size;
+      const backendLabel = backend === "unstructured" ? "Unstructured" : "VLM";
+      status.innerHTML = `<span class="spinner"></span>Running ${backendLabel} on ${targetCount} page${targetCount === 1 ? "" : "s"}…`;
+      statsBar.classList.remove("visible");
+
+      const fd = new FormData();
+      fd.append("file", file);
+      if (apiRange) fd.append("pages", apiRange);
+
+      try {
+        const resp = await fetch(BACKEND_ENDPOINTS[backend], {
+          method: "POST",
+          body: fd,
+          signal: inflight.signal,
+        });
+        if (!resp.ok) {
+          const ct = resp.headers.get("content-type") || "";
+          const msg = ct.includes("json") ? (await resp.json()).error : await resp.text();
+          throw new Error(msg || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        // Merge results into pageData by original index.
+        const byIdx = new Map();
+        (data.pages || []).forEach((r) => byIdx.set(r.index, r));
+        pageData = pageData.map((p) => {
+          const r = byIdx.get(p.index);
+          if (!r) {
+            // Not in this OCR pass — clear busy flag, keep prior markdown if any.
+            return { ...p, busy: false };
+          }
+          return {
+            ...p,
+            busy: false,
+            markdown: r.markdown,
+            error: r.error,
+            ocr_ms: r.ocr_ms,
+          };
+        });
+        renderPages();
+        renderStats(data.stats);
+        const tag = data.backend === "unstructured" ? "Unstructured" : `VLM (${data.model})`;
+        status.textContent = `Done — ${data.pages.length} page${data.pages.length === 1 ? "" : "s"} via ${tag}`;
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        status.classList.add("err");
+        status.textContent = `Error: ${e.message}`;
+        // Clear busy flags so the user can retry.
+        pageData = pageData.map((p) => ({ ...p, busy: false }));
+        renderPages();
+      } finally {
+        inflight = null;
+        goBtn.disabled = chosenFile == null;
+        rangeGroup.classList.toggle("disabled", chosenFile == null);
+      }
+    }
+  </script>
+</body>
+</html>

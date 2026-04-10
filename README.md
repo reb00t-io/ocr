@@ -1,62 +1,113 @@
-# Bootstrap Template
+# OCR Service
 
-A template for bootstrapping new Python web apps. Copy all files into an empty repo and you're ready to go.
+A self-hosted OCR REST API built on **Privatemode OCR**. Submit a PDF or image,
+get back structured markdown, plain text, or extracted JSON.
 
-## What's Included
+## Requirements
 
-- **Flask + Uvicorn** web server (Python 3.13)
-- **Docker** build with docker-compose
-- **CI/CD** via GitHub Actions (build → e2e → deploy)
-- **Deploy script** that builds, uploads, and runs the container on a remote host via SSH
-- **E2e tests** that verify the running container
-- **VS Code** launch config
+- Python 3.13
+- `poppler-utils` system package (for PDF support)
+- Privatemode OCR credentials / model access (see configuration)
 
 ## Quick Start
 
 ```bash
-# 1. Copy all files into your new repo
-
-# 2. Allow direnv to load the environment (creates venv, installs deps, sets PORT)
+# 1. Load environment (creates venv, installs deps, sets PORT)
 direnv allow
 
-# 3. Run locally
+# 2. Run locally
 python src/main.py
 # → http://localhost:$PORT
 
-# 4. Or run with Docker
+# 3. Or run with Docker
 ./scripts/build.sh
 docker compose up
 ```
+
+## API
+
+### `POST /v1/ocr`
+
+Synchronous. Suitable for single images or short PDFs (≤ 10 pages).
+
+**Request**
+```json
+{
+  "model": "privatemode-ocr",
+  "document": {
+    "type": "url",
+    "value": "https://example.com/invoice.pdf"
+  },
+  "pages": [0, 1],
+  "output": {
+    "format": "markdown"
+  }
+}
+```
+
+`document.type` accepts `"url"` or `"base64"`.
+`pages` is optional — omit to process all pages.
+`output.format` is `"markdown"` (default), `"text"`, or `"json"`.
+
+**Response**
+```json
+{
+  "id": "ocr_abc123",
+  "model": "privatemode-ocr",
+  "pages": [
+    {
+      "index": 0,
+      "markdown": "# Invoice\n\n| Item | Price |\n|------|-------|\n...",
+      "images": [],
+      "dimensions": { "width": 1240, "height": 1754, "dpi": 300 }
+    }
+  ],
+  "usage": { "pages": 1, "processing_ms": 1200 }
+}
+```
+
+### `GET /health`
+
+```json
+{ "status": "ok", "version": "0.1.0" }
+```
+
+## Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | set in `.envrc` | Server port |
+| `OCR_FILE_TTL_SECONDS` | `3600` | How long uploaded files are kept |
+| `OCR_MAX_UPLOAD_MB` | `50` | Request size limit |
 
 ## Project Structure
 
 ```
 src/
-  main.py              # Flask app entry point
-  templates/            # Jinja2 templates
+  main.py             # Flask app entry point
+  routes/
+    ocr.py            # /v1/ocr
+  backends/
+    base.py           # Abstract OCRBackend
+    privatemode.py    # Privatemode OCR backend
+  pdf.py              # PDF → image conversion (pdf2image)
+  schema.py           # Request / response dataclasses
 scripts/
-  venv.rc              # Create/activate venv and install deps
-  build.sh             # Docker build
-  deploy.sh            # Build, upload, and deploy to remote host
-  get_logs.sh          # Fetch container logs from remote
+  build.sh            # Docker build
+  deploy.sh           # Build, upload, and deploy to remote host
+  get_logs.sh         # Fetch container logs from remote
 test/
-  e2e.sh               # End-to-end smoke test
+  e2e.sh              # End-to-end smoke tests
 .github/workflows/
-  ci.yml               # CI pipeline: build → e2e → deploy
-.envrc                 # direnv: venv setup + PORT config
+  ci.yml              # CI pipeline: build → e2e → deploy
 Dockerfile
 docker-compose.yml
-pyproject.toml
-VERSION
+plan.md               # Implementation plan and architecture notes
 ```
 
-## Customization
+## Docker
 
-After copying, you'll want to:
-
-1. Rename the project in `pyproject.toml` and `VERSION`
-2. Update the Docker image name in `scripts/build.sh` and `scripts/deploy.sh`
-3. Set your remote host/port/user in `scripts/deploy.sh`
-4. Add your `DEPLOY_SSH_KEY` secret in GitHub repo settings
-5. Change `PORT` in `.envrc` if needed
-6. Replace `src/templates/hello.html` and the `/` route with your app
+```bash
+./scripts/build.sh
+docker compose up
+```
