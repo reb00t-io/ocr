@@ -58,14 +58,26 @@ print_remote_diagnostics() {
   ssh "${SSH_OPTS[@]}" "$REMOTE" "
     set +e
     cd ~/${IMAGE_NAME} 2>/dev/null || true
-    echo '--- docker compose ps ---'
-    docker compose ps 2>&1 || true
+    echo '--- docker ps -a (all containers, project-agnostic) ---'
+    docker ps -a --filter 'name=${IMAGE_NAME}' --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}'
+    echo
+    echo '--- docker compose ps -a ---'
+    docker compose ps -a 2>&1 || true
     echo
     echo '--- container state ---'
     docker inspect ${IMAGE_NAME} --format '{{json .State}}' 2>&1 || true
     echo
-    echo '--- container logs (stdout + stderr, last 200 lines) ---'
-    docker compose logs --tail 200 2>&1 || docker logs --tail 200 ${IMAGE_NAME} 2>&1 || true
+    echo '--- docker logs ${IMAGE_NAME} (last 200, stdout+stderr) ---'
+    docker logs --tail 200 ${IMAGE_NAME} 2>&1 || true
+    echo
+    echo '--- docker compose logs (last 200, project-scoped) ---'
+    docker compose logs --tail 200 2>&1 || true
+    echo
+    echo '--- docker-compose.yml on remote ---'
+    cat docker-compose.yml 2>&1 || true
+    echo
+    echo '--- .env on remote (keys only) ---'
+    sed 's/=.*/=<redacted>/' .env 2>&1 || true
   " || true
 }
 
@@ -130,17 +142,31 @@ ${extra_env}ENVEOF
 EOF
 echo "ok"
 
+# ---- defensive cleanup ---------------------------------------------------
+# Remove any pre-existing container with the same name. The previous
+# version of this script used `docker run --name ocr ...` (without
+# compose), so the first deploy after the rewrite has an orphan that
+# collides with `container_name: ocr` in the new compose file.
+printf "==> removing stale container (if any)..."
+ssh "${SSH_OPTS[@]}" "$REMOTE" "docker rm -f ${IMAGE_NAME} 2>/dev/null || true" > /dev/null 2>&1 || true
+echo "ok"
+
 # ---- start services ------------------------------------------------------
-printf "==> starting services..."
+# Capture compose output so a failure surfaces the actual error message
+# instead of just "FAIL". On success the output streams to the deploy
+# log, which is fine.
+printf "==> starting services...\n"
 if ! retry_cmd 3 4 ssh "${SSH_OPTS[@]}" "$REMOTE" "
   cd ~/${IMAGE_NAME}
   docker compose up -d --remove-orphans
-" > /dev/null 2>&1; then
+" 2>&1 | sed 's/^/    /'; then
   echo "FAIL"
   print_remote_diagnostics
   exit 1
 fi
-echo "ok"
+# `pipefail` is on at the top of the script — the if-test above already
+# captures retry_cmd's exit status correctly.
+echo "==> services started ok"
 
 # ---- wait for server -----------------------------------------------------
 printf "==> waiting for server..."
