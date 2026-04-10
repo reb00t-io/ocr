@@ -1,14 +1,22 @@
-import base64
-import binascii
+import hashlib
 import hmac
 import os
+import secrets
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request
+from flask import (
+    Flask,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+)
 
 from routes.demo import demo_bp
 from routes.doc import doc_bp
 from routes.ocr import ocr_bp
+
 
 def _env_int(name: str, default: int) -> int:
     """Read an integer env var, treating empty string the same as unset.
@@ -22,8 +30,35 @@ def _env_int(name: str, default: int) -> int:
     return int(raw)
 
 
+def _derive_secret_key() -> bytes:
+    """Session-signing key.
+
+    Order of preference:
+    1. ``SECRET_KEY`` env var (for operators that want to rotate the
+       session signing key independently of the login password).
+    2. A deterministic hash of ``AUTH_PASSWORD`` (so sessions survive a
+       container restart as long as the password doesn't change).
+    3. A random per-process key (dev mode).
+    """
+    explicit = os.environ.get("SECRET_KEY", "")
+    if explicit:
+        return explicit.encode("utf-8")
+    pw = os.environ.get("AUTH_PASSWORD", "")
+    if pw:
+        return hashlib.sha256(("ocr-viewer-session-v1:" + pw).encode("utf-8")).digest()
+    return secrets.token_bytes(32)
+
+
 app = Flask(__name__)
+app.secret_key = _derive_secret_key()
 app.config["MAX_CONTENT_LENGTH"] = _env_int("OCR_MAX_UPLOAD_MB", 50) * 1024 * 1024
+# Session cookie hardening. The HTML login flow lives on the same
+# origin as everything else, so Lax is fine for links back to /demo.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_NAME="ocr_session",
+)
 app.register_blueprint(ocr_bp)
 app.register_blueprint(demo_bp)
 app.register_blueprint(doc_bp)
@@ -37,32 +72,21 @@ DEPLOY_DATE = os.environ.get("DEPLOY_DATE", "unknown")
 # ---------------------------------------------------------------------------
 # Two independent layers, both opt-in via env vars:
 #
-# 1. AUTH_PASSWORD → HTTP Basic on the human-facing HTML pages (/, /demo,
-#    /docs). Browsers handle the prompt natively. Set this so anonymous
-#    visitors can't even *see* the demo viewer.
+# 1. AUTH_PASSWORD → HTML login form at /login backed by a signed session
+#    cookie. Unauthed requests to the human-facing HTML pages (/, /demo,
+#    /docs, /compare) get redirected to /login?next=<path>.
 #
 # 2. API_KEY → `X-API-Key` header (or `Authorization: Bearer <key>`) on
 #    every data endpoint (/v1/ocr, /demo/process, /demo/preview,
-#    /demo/unstructured, /demo/mistral, /doc). Set this so anonymous
-#    HTTP clients can't actually run OCR.
+#    /demo/unstructured, /demo/mistral, /doc, /comparison). Set this so
+#    anonymous HTTP clients can't actually run OCR.
 #
 # `/health` is always public so liveness probes work without credentials.
+# `/login` is always public (you need to reach it to submit the form).
 # In dev (neither var set) all gates are no-ops.
 
-_HEALTH_PATH = "/health"
+_PUBLIC_PATHS = {"/health", "/login", "/logout"}
 _HTML_PAGE_PATHS = {"/", "/demo", "/docs", "/compare"}
-
-
-def _check_basic_auth_header(header: str | None, expected_password: str) -> bool:
-    if not header or not header.lower().startswith("basic "):
-        return False
-    encoded = header.split(" ", 1)[1].strip()
-    try:
-        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        return False
-    _, _, password = decoded.partition(":")
-    return hmac.compare_digest(password, expected_password)
 
 
 def _check_api_key(expected: str) -> bool:
@@ -81,25 +105,37 @@ def _check_api_key(expected: str) -> bool:
     return hmac.compare_digest(supplied, expected)
 
 
+def _safe_next_path(raw: str) -> str:
+    """Return a same-origin path for post-login redirect.
+
+    Prevents open-redirect attacks: only accept paths starting with a
+    single slash. Anything else (absolute URLs, protocol-relative
+    `//host/…`, empty) falls back to ``/demo``.
+    """
+    if not raw:
+        return "/demo"
+    if raw.startswith("//") or "://" in raw:
+        return "/demo"
+    if not raw.startswith("/"):
+        return "/demo"
+    return raw
+
+
 @app.before_request
 def _gate_requests():
-    if request.path == _HEALTH_PATH:
+    if request.path in _PUBLIC_PATHS:
         return None
 
     auth_password = os.environ.get("AUTH_PASSWORD")
     api_key = os.environ.get("API_KEY")
     is_html_page = request.path in _HTML_PAGE_PATHS
 
-    # ---- HTML pages: HTTP Basic via AUTH_PASSWORD ------------------------
+    # ---- HTML pages: signed session cookie via /login -------------------
     if is_html_page and auth_password:
-        if not _check_basic_auth_header(request.headers.get("Authorization"), auth_password):
-            return Response(
-                "Authentication required\n",
-                status=401,
-                headers={"WWW-Authenticate": 'Basic realm="OCR Viewer", charset="UTF-8"'},
-                mimetype="text/plain",
-            )
-        return None
+        if session.get("authed") is True:
+            return None
+        from urllib.parse import quote
+        return redirect(f"/login?next={quote(request.full_path if request.query_string else request.path)}")
 
     # ---- Data endpoints: API_KEY header ---------------------------------
     if not is_html_page and api_key:
@@ -114,11 +150,45 @@ def _gate_requests():
     return None
 
 
-def _api_key_for_template() -> str:
-    """Return the API key to embed into HTML page templates so the bundled
-    JS can authenticate its backend calls. Empty string when API_KEY is
-    not configured (dev mode)."""
-    return os.environ.get("API_KEY", "")
+# ---------------------------------------------------------------------------
+# Login / logout
+# ---------------------------------------------------------------------------
+
+@app.get("/login")
+def login_form():
+    next_url = _safe_next_path(request.args.get("next", ""))
+    # If already authed, skip the form entirely.
+    if session.get("authed") is True:
+        return redirect(next_url)
+    return render_template("login.html", next=next_url, error=None)
+
+
+@app.post("/login")
+def login_submit():
+    expected = os.environ.get("AUTH_PASSWORD", "")
+    supplied = request.form.get("password", "") or ""
+    next_url = _safe_next_path(request.form.get("next", ""))
+
+    if not expected:
+        # Dev mode — no password configured; any submit succeeds.
+        session["authed"] = True
+        return redirect(next_url)
+
+    if hmac.compare_digest(supplied, expected):
+        session.clear()
+        session["authed"] = True
+        return redirect(next_url)
+
+    return (
+        render_template("login.html", next=next_url, error="Wrong password."),
+        401,
+    )
+
+
+@app.get("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
 
 
 @app.get("/health")

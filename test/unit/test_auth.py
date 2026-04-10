@@ -1,22 +1,20 @@
-"""Tests for the AUTH_PASSWORD (HTTP Basic) and API_KEY auth gates.
+"""Tests for the AUTH_PASSWORD (HTML login + session cookie) and API_KEY gates.
 
 Two independent layers:
 
-- ``AUTH_PASSWORD`` → HTTP Basic on HTML pages (``/``, ``/demo``, ``/docs``).
+- ``AUTH_PASSWORD`` → HTML login form at ``/login`` backed by a signed
+  session cookie. Unauthed requests to ``/``, ``/demo``, ``/docs`` or
+  ``/compare`` get redirected to ``/login?next=<path>``.
 - ``API_KEY`` → ``X-API-Key`` (or ``Authorization: Bearer``) on data
   endpoints (``/v1/ocr``, ``/demo/process``, ``/demo/preview``,
-  ``/demo/unstructured``, ``/demo/mistral``, ``/doc``).
+  ``/demo/unstructured``, ``/demo/mistral``, ``/doc``, ``/comparison``).
 
-``/health`` is always public; in dev mode (neither var set) everything
-passes through.
+``/health``, ``/login`` and ``/logout`` are always public; in dev mode
+(neither env var set) every gate is a no-op.
 """
-import base64
+from urllib.parse import urlparse
 
 import pytest
-
-
-def _basic(password: str, user: str = "user") -> str:
-    return "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()
 
 
 def _client():
@@ -53,52 +51,113 @@ def app_without_auth(monkeypatch):
     return _client()
 
 
+def _login(client, password: str, next_url: str = "/demo"):
+    return client.post(
+        "/login",
+        data={"password": password, "next": next_url},
+        follow_redirects=False,
+    )
+
+
 # ---------------------------------------------------------------------------
-# AUTH_PASSWORD — HTTP Basic on HTML pages only
+# AUTH_PASSWORD — HTML login form + session cookie
 # ---------------------------------------------------------------------------
 
-class TestBasicAuthOnHtmlPages:
-    def test_demo_returns_401_without_credentials(self, app_with_basic):
+class TestLoginForm:
+    def test_login_get_returns_form(self, app_with_basic):
+        resp = app_with_basic.get("/login")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert "<form" in body and 'name="password"' in body
+        assert 'name="next"' in body
+
+    def test_login_get_accepts_next(self, app_with_basic):
+        resp = app_with_basic.get("/login?next=/docs")
+        assert resp.status_code == 200
+        assert 'value="/docs"' in resp.get_data(as_text=True)
+
+    def test_login_get_bypasses_auth_when_password_set(self, app_with_basic):
+        # You must be able to reach /login without already being authed,
+        # otherwise there's no way to sign in.
+        resp = app_with_basic.get("/login")
+        assert resp.status_code == 200
+
+    def test_login_post_with_correct_password_sets_session_and_redirects(self, app_with_basic):
+        resp = _login(app_with_basic, "letmein", "/demo")
+        assert resp.status_code == 302
+        assert urlparse(resp.headers["Location"]).path == "/demo"
+
+    def test_login_post_with_wrong_password_shows_error(self, app_with_basic):
+        resp = _login(app_with_basic, "nope", "/demo")
+        assert resp.status_code == 401
+        body = resp.get_data(as_text=True)
+        assert "Wrong password" in body
+
+    def test_login_post_open_redirect_is_blocked(self, app_with_basic):
+        # next= containing an absolute URL or //host/… falls back to /demo.
+        for danger in ("https://evil.com/", "//evil.com/", "ftp://x"):
+            resp = _login(app_with_basic, "letmein", danger)
+            assert resp.status_code == 302
+            assert urlparse(resp.headers["Location"]).path == "/demo"
+
+    def test_login_post_preserves_internal_path(self, app_with_basic):
+        resp = _login(app_with_basic, "letmein", "/docs")
+        assert urlparse(resp.headers["Location"]).path == "/docs"
+
+
+class TestHtmlPageGating:
+    def test_demo_redirects_to_login_when_unauthed(self, app_with_basic):
         resp = app_with_basic.get("/demo")
-        assert resp.status_code == 401
-        assert resp.headers.get("WWW-Authenticate", "").startswith("Basic")
+        assert resp.status_code == 302
+        loc = urlparse(resp.headers["Location"])
+        assert loc.path == "/login"
+        # Accept either encoded (%2Fdemo) or unencoded (/demo) forms — both
+        # are valid in a query string and the server accepts both on the
+        # /login GET side.
+        assert "next=/demo" in (loc.query or "") or "next=%2Fdemo" in (loc.query or "")
 
-    def test_demo_accepts_correct_password(self, app_with_basic):
-        resp = app_with_basic.get("/demo", headers={"Authorization": _basic("letmein")})
-        assert resp.status_code == 200
-
-    def test_username_is_ignored(self, app_with_basic):
-        for user in ("user", "alice", ""):
-            resp = app_with_basic.get("/demo", headers={"Authorization": _basic("letmein", user=user)})
-            assert resp.status_code == 200, f"username={user!r}"
-
-    def test_wrong_password_rejected(self, app_with_basic):
-        resp = app_with_basic.get("/demo", headers={"Authorization": _basic("nope")})
-        assert resp.status_code == 401
-
-    def test_malformed_header_rejected(self, app_with_basic):
-        for header in ("Bearer letmein", "Basic !!!not-base64!!!", "Basic"):
-            resp = app_with_basic.get("/demo", headers={"Authorization": header})
-            assert resp.status_code == 401, f"header={header!r}"
-
-    def test_root_also_gated(self, app_with_basic):
-        # `/` is the same view as `/demo`.
+    def test_root_redirects_to_login_when_unauthed(self, app_with_basic):
         resp = app_with_basic.get("/")
-        assert resp.status_code == 401
+        assert resp.status_code == 302
+        assert urlparse(resp.headers["Location"]).path == "/login"
 
-    def test_docs_also_gated(self, app_with_basic):
+    def test_docs_redirects_to_login_when_unauthed(self, app_with_basic):
         resp = app_with_basic.get("/docs")
-        assert resp.status_code == 401
-        resp = app_with_basic.get("/docs", headers={"Authorization": _basic("letmein")})
-        assert resp.status_code == 200
+        assert resp.status_code == 302
+        assert urlparse(resp.headers["Location"]).path == "/login"
 
-    def test_compare_also_gated(self, app_with_basic):
+    def test_compare_redirects_to_login_when_unauthed(self, app_with_basic):
         resp = app_with_basic.get("/compare")
-        assert resp.status_code == 401
-        resp = app_with_basic.get("/compare", headers={"Authorization": _basic("letmein")})
+        assert resp.status_code == 302
+        assert urlparse(resp.headers["Location"]).path == "/login"
+
+    def test_demo_accessible_after_login(self, app_with_basic):
+        login_resp = _login(app_with_basic, "letmein", "/demo")
+        assert login_resp.status_code == 302
+        # Flask's test client shares cookies across calls.
+        resp = app_with_basic.get("/demo")
         assert resp.status_code == 200
 
-    def test_health_bypasses_basic(self, app_with_basic):
+    def test_logout_clears_session(self, app_with_basic):
+        _login(app_with_basic, "letmein", "/demo")
+        resp = app_with_basic.get("/demo")
+        assert resp.status_code == 200
+
+        logout_resp = app_with_basic.get("/logout")
+        assert logout_resp.status_code == 302
+        assert urlparse(logout_resp.headers["Location"]).path == "/login"
+
+        resp = app_with_basic.get("/demo")
+        assert resp.status_code == 302  # back to the gate
+
+    def test_login_already_authed_short_circuits(self, app_with_basic):
+        _login(app_with_basic, "letmein", "/demo")
+        # Visiting /login again should just bounce to the `next` target.
+        resp = app_with_basic.get("/login?next=/docs")
+        assert resp.status_code == 302
+        assert urlparse(resp.headers["Location"]).path == "/docs"
+
+    def test_health_bypasses_login_gate(self, app_with_basic):
         resp = app_with_basic.get("/health")
         assert resp.status_code == 200
 
@@ -109,15 +168,11 @@ class TestBasicAuthOnHtmlPages:
             "/v1/ocr",
             json={"images": [{"type": "base64", "value": "abc"}]},
         )
-        # 401 would be wrong here; we expect the request to reach the
-        # route, which will fail later for unrelated reasons (the LLM
-        # mock isn't installed in this fixture). Anything other than 401
-        # is fine.
         assert resp.status_code != 401
 
 
 # ---------------------------------------------------------------------------
-# API_KEY — header check on data endpoints only
+# API_KEY — header check on data endpoints only (unchanged from Basic-era)
 # ---------------------------------------------------------------------------
 
 class TestApiKeyOnDataEndpoints:
@@ -135,8 +190,6 @@ class TestApiKeyOnDataEndpoints:
             json={"images": [{"type": "base64", "value": "abc"}]},
             headers={"X-API-Key": "secret-token"},
         )
-        # We don't care about the downstream response shape — only that
-        # the auth gate didn't 401 us.
         assert resp.status_code != 401
 
     def test_v1_ocr_accepts_bearer(self, app_with_api_key):
@@ -168,7 +221,7 @@ class TestApiKeyOnDataEndpoints:
         assert resp.status_code == 200
 
     def test_demo_html_open_when_only_api_key_set(self, app_with_api_key):
-        # The HTML pages are not gated by API_KEY — only by AUTH_PASSWORD.
+        # HTML pages are not gated by API_KEY — only by AUTH_PASSWORD.
         resp = app_with_api_key.get("/demo")
         assert resp.status_code == 200
 
@@ -188,12 +241,14 @@ class TestApiKeyOnDataEndpoints:
 # ---------------------------------------------------------------------------
 
 class TestBothGates:
-    def test_demo_html_needs_basic(self, app_with_both):
+    def test_demo_html_redirects_to_login(self, app_with_both):
         resp = app_with_both.get("/demo")
-        assert resp.status_code == 401
+        assert resp.status_code == 302
+        assert urlparse(resp.headers["Location"]).path == "/login"
 
-    def test_demo_html_with_basic_carries_api_key_in_template(self, app_with_both):
-        resp = app_with_both.get("/demo", headers={"Authorization": _basic("letmein")})
+    def test_demo_html_after_login_embeds_api_key(self, app_with_both):
+        _login(app_with_both, "letmein", "/demo")
+        resp = app_with_both.get("/demo")
         assert resp.status_code == 200
         assert 'name="api-key" content="secret-token"' in resp.get_data(as_text=True)
 
@@ -204,12 +259,12 @@ class TestBothGates:
         )
         assert resp.status_code == 401
 
-    def test_v1_ocr_with_basic_alone_still_rejected(self, app_with_both):
-        # Basic auth doesn't unlock data endpoints; you need the API key.
+    def test_v1_ocr_after_session_login_still_rejected(self, app_with_both):
+        # Session login does NOT grant API access; the API key is required.
+        _login(app_with_both, "letmein", "/demo")
         resp = app_with_both.post(
             "/v1/ocr",
             json={"images": [{"type": "base64", "value": "abc"}]},
-            headers={"Authorization": _basic("letmein")},
         )
         assert resp.status_code == 401
 
@@ -246,6 +301,14 @@ class TestDevMode:
     def test_health_open(self, app_without_auth):
         resp = app_without_auth.get("/health")
         assert resp.status_code == 200
+
+    def test_login_get_open(self, app_without_auth):
+        resp = app_without_auth.get("/login")
+        assert resp.status_code == 200
+
+    def test_login_post_with_any_password_succeeds_in_dev(self, app_without_auth):
+        resp = _login(app_without_auth, "anything", "/demo")
+        assert resp.status_code == 302
 
     def test_template_has_empty_api_key(self, app_without_auth):
         resp = app_without_auth.get("/demo")
