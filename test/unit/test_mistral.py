@@ -45,11 +45,20 @@ class TestUrlDerivation:
 class TestConfiguration:
     def test_explicit_api_key_wins(self, monkeypatch):
         monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
         backend = MistralBackend(api_key="explicit-key")
         assert backend.api_key == "explicit-key"
         assert backend.configured
 
-    def test_llm_api_key_env_used_when_no_arg(self, monkeypatch):
+    def test_mistral_api_key_env_preferred(self, monkeypatch):
+        monkeypatch.setenv("MISTRAL_API_KEY", "mistral-key")
+        monkeypatch.setenv("LLM_API_KEY", "llm-key")
+        backend = MistralBackend()
+        assert backend.api_key == "mistral-key"
+        assert backend.configured
+
+    def test_llm_api_key_env_used_as_fallback(self, monkeypatch):
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
         monkeypatch.setenv("LLM_API_KEY", "env-key")
         backend = MistralBackend()
         assert backend.api_key == "env-key"
@@ -57,17 +66,34 @@ class TestConfiguration:
 
     def test_unconfigured_when_neither(self, monkeypatch):
         monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
         backend = MistralBackend()
         assert backend.api_key is None
         assert not backend.configured
 
     def test_unconfigured_raises_on_process(self, monkeypatch):
         monkeypatch.delenv("LLM_API_KEY", raising=False)
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
         backend = MistralBackend()
         with pytest.raises(MistralNotConfigured):
             backend.process(b"data", "application/pdf")
 
-    def test_url_derived_from_llm_base_url(self, monkeypatch):
+    def test_mistral_api_key_uses_mistral_default_url(self, monkeypatch):
+        monkeypatch.setenv("MISTRAL_API_KEY", "k")
+        monkeypatch.delenv("MISTRAL_BASE_URL", raising=False)
+        monkeypatch.delenv("LLM_BASE_URL", raising=False)
+        backend = MistralBackend()
+        assert backend.url == "https://api.mistral.ai/v1/ocr"
+
+    def test_mistral_base_url_env(self, monkeypatch):
+        monkeypatch.setenv("MISTRAL_API_KEY", "k")
+        monkeypatch.setenv("MISTRAL_BASE_URL", "https://custom.mistral.example/v1")
+        backend = MistralBackend()
+        assert backend.url == "https://custom.mistral.example/v1/ocr"
+
+    def test_url_falls_back_to_llm_base_url(self, monkeypatch):
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+        monkeypatch.delenv("MISTRAL_BASE_URL", raising=False)
         monkeypatch.setenv("LLM_BASE_URL", "https://proxy.example.com/v1")
         monkeypatch.setenv("LLM_API_KEY", "k")
         backend = MistralBackend()

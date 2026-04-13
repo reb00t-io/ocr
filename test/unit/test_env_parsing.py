@@ -80,6 +80,7 @@ class TestMistralEnvStr:
     def test_backend_unconfigured_when_llm_api_key_empty(self, monkeypatch):
         # Real-world bug: CI passes -e LLM_API_KEY= for the optional secret.
         monkeypatch.setenv("LLM_API_KEY", "")
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
         from backends.mistral import MistralBackend
         backend = MistralBackend()
         assert backend.api_key is None
@@ -88,6 +89,8 @@ class TestMistralEnvStr:
     def test_backend_url_falls_back_when_base_empty(self, monkeypatch):
         monkeypatch.setenv("LLM_BASE_URL", "")
         monkeypatch.setenv("LLM_API_KEY", "k")
+        monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+        monkeypatch.delenv("MISTRAL_BASE_URL", raising=False)
         from backends.mistral import MistralBackend
         backend = MistralBackend()
         # _env_str returns the LLM_BASE_URL default ("http://localhost:8080/v1"),

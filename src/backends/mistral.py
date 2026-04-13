@@ -3,12 +3,12 @@
 Sends a document (PDF or image bytes) to a Mistral-compatible OCR
 endpoint as a base64 data URL and returns the parsed response.
 
-We route through the same Privatemode proxy as the VLM and Unstructured
-backends — that is, ``${LLM_BASE_URL}/ocr`` (typically
-``http://localhost:8080/v1/ocr``) authenticated with ``LLM_API_KEY``.
-This way there's only one upstream credential to provision in deploy
-and the request still flows through Privatemode's confidential
-inference plane.
+By default we call the Mistral API directly at
+``https://api.mistral.ai/v1/ocr`` using ``MISTRAL_API_KEY``.
+If ``MISTRAL_BASE_URL`` is set, that value is used instead (with
+``/ocr`` appended).  As a last resort, if neither Mistral-specific
+variable is set, we fall back to ``LLM_BASE_URL`` / ``LLM_API_KEY``
+(the Privatemode proxy).
 """
 from __future__ import annotations
 
@@ -26,19 +26,17 @@ def _env_str(name: str, default: str) -> str:
     return val if val else default
 
 
+MISTRAL_DEFAULT_BASE = "https://api.mistral.ai/v1"
 LLM_BASE_URL = _env_str("LLM_BASE_URL", "http://localhost:8080/v1")
 LLM_API_KEY  = _env_str("LLM_API_KEY", "dummy")
 MISTRAL_OCR_MODEL = _env_str("MISTRAL_OCR_MODEL", "mistral-ocr-latest")
 
 
 def derive_mistral_url(base_url: str) -> str:
-    """Sibling URL for the Mistral-compatible OCR endpoint on the LLM proxy.
+    """Build the OCR endpoint URL by appending ``/ocr`` to *base_url*.
 
-    Mistral's upstream path is ``/v1/ocr``; our LLM_BASE_URL already
-    ends in ``/v1`` (or doesn't), so we just append ``/ocr``.
-
-    >>> derive_mistral_url("http://localhost:8080/v1")
-    'http://localhost:8080/v1/ocr'
+    >>> derive_mistral_url("https://api.mistral.ai/v1")
+    'https://api.mistral.ai/v1/ocr'
     >>> derive_mistral_url("http://localhost:8080/v1/")
     'http://localhost:8080/v1/ocr'
     >>> derive_mistral_url("http://localhost:8080")
@@ -59,14 +57,29 @@ class MistralBackend:
         model: str = MISTRAL_OCR_MODEL,
         timeout: float = 600.0,
     ):
-        # Read late so tests / runtime config changes are honoured. Empty
-        # strings count as unset (CI sometimes passes -e VAR= for unset
-        # secrets).
-        self.api_key = api_key if api_key is not None else _env_str("LLM_API_KEY", "")
+        # Key resolution: MISTRAL_API_KEY > LLM_API_KEY > explicit arg.
+        if api_key is not None:
+            self.api_key = api_key
+        else:
+            self.api_key = (
+                _env_str("MISTRAL_API_KEY", "")
+                or _env_str("LLM_API_KEY", "")
+                or None
+            )
         if not self.api_key:
             self.api_key = None
-        base = _env_str("LLM_BASE_URL", LLM_BASE_URL)
-        self.url = url if url is not None else derive_mistral_url(base)
+
+        # URL resolution: explicit > MISTRAL_BASE_URL > LLM_BASE_URL fallback.
+        if url is not None:
+            self.url = url
+        else:
+            base = (
+                _env_str("MISTRAL_BASE_URL", "")
+                or (MISTRAL_DEFAULT_BASE if _env_str("MISTRAL_API_KEY", "") else "")
+                or _env_str("LLM_BASE_URL", "http://localhost:8080/v1")
+            )
+            self.url = derive_mistral_url(base)
+
         self.model = model or MISTRAL_OCR_MODEL
         self.timeout = timeout
 
