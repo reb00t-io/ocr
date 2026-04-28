@@ -124,7 +124,7 @@ printf -v auth_password_q '%q'  "$AUTH_PASSWORD"
 
 # Optional values — only written if they're non-empty in the local shell.
 extra_env=""
-for var in LLM_MODEL MISTRAL_OCR_MODEL OCR_MAX_UPLOAD_MB; do
+for var in LLM_MODEL MISTRAL_API_KEY MISTRAL_BASE_URL MISTRAL_OCR_MODEL OCR_MAX_UPLOAD_MB; do
   if [[ -n "${!var:-}" ]]; then
     printf -v val_q '%q' "${!var}"
     extra_env+="${var}=${val_q}"$'\n'
