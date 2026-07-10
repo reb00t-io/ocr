@@ -124,7 +124,7 @@ POST /v1/ocr
 200 OK
 {
   "id":    "req-2026-04-10-002",
-  "model": "gemma-3-27b",
+  "model": "kimi-latest",
   "pages": [
     { "index": 0, "content": "# Invoice\n...", "processing_ms": 612 },
     { "index": 1, "content": "# Invoice\n...", "processing_ms": 754 },
@@ -749,11 +749,68 @@ academic-paper-style PDFs; we're sharper on noisy or unusual
 layouts where the LLM's flexibility wins, and we already speak
 HTTP/JSON the way the hosted services do. **A future "best of both
 worlds" version of this service could ship Docling as an alternate
-backend** behind the same `POST /v1/ocr` shape — see §5.3.
+backend** behind the same `POST /v1/ocr` shape — see §6.3.
 
 ---
 
-## 4. Rating
+## 4. API ergonomics — implementation-agnostic
+
+Setting aside what each backend can actually parse and how well it
+parses it, this is a comparison of the wire surfaces alone: how
+much ceremony to issue a request, and how directly the response
+answers "give me the text of this document".
+
+### 4.1 Best — Mistral
+
+JSON in, JSON out, one endpoint. Base64 *or* URL on either input
+shape. Page selection, optional `id`, markdown returned by default,
+and `document_annotation_format` slots schema-driven extraction
+into the same call. No multipart, no auth dance beyond a bearer
+token, no processor pre-provisioned in the URL. The response is a
+per-page tree the client can render directly without re-assembling
+reading order.
+
+### 4.2 Worst — Google Document AI
+
+Project, location and processor ID are baked into the URL, so the
+"hello world" call already needs a created processor and an
+OAuth / service-account token. The response is a flat `text` string
+plus `pages[].layout.textAnchor.textSegments` index pointers —
+turning that into reading-order markdown for a page is the client's
+problem (or the **Document AI Toolbox** library's). "OCR + tables +
+entities" is not one call; it is three processors (Enterprise
+Document OCR + Form Parser + Custom Extractor) provisioned
+separately. Sync caps at 15 pages; past that you stage files
+through GCS.
+
+### 4.3 Middle
+
+- **Unstructured** is `multipart/form-data` with form-field config
+  and a flat element array response. Clean if you want typed
+  elements; awkward if you want markdown, since reassembly is on
+  the client.
+- **Docling-serve** has the thinnest surface (one
+  `POST /v1/convert/source`). Pleasant to call, but no request
+  `id`, no async, no page selector in the simplest call shape, and
+  no schema-driven extraction.
+- **Ours** sits next to Mistral by design — same field names, same
+  shape — but is missing `document_annotation` (§6.1 #1), which is
+  the one place Mistral's API lets you do something we cannot in a
+  single round-trip.
+
+### 4.4 Bottom line
+
+On wire-format alone, Mistral is the only API where a single
+round-trip yields both reading-order markdown *and* schema-driven
+structured fields, with bboxes / tables / headers as side data the
+client can ignore. Google forces composition; Unstructured forces
+reassembly; Docling-serve gives you the data but nothing
+schema-driven. Closing the `document_annotation` gap is the
+highest-leverage protocol change we could make.
+
+---
+
+## 5. Rating
 
 Scores are 1–5 (5 = best), comparing what each API offers a typical
 "upload doc, get structured text back" workflow. Google is rated as
@@ -798,13 +855,13 @@ Some context for the totals:
   the louder schema errors. We now sit one point behind Mistral in
   the managed-API peer group, ahead of Document AI, and just below
   Unstructured. The remaining gap to Docling is roughly two
-  buckets: input format breadth (DOCX/PPTX/HTML — see §5.2 #8) and
-  the visual / geometry items in §5.3, which are blocked on either a
-  layout-aware model or the hybrid Docling backend (§5.3 #13). That
+  buckets: input format breadth (DOCX/PPTX/HTML — see §6.2 #8) and
+  the visual / geometry items in §6.3, which are blocked on either a
+  layout-aware model or the hybrid Docling backend (§6.3 #13). That
   hybrid-backend item is still the single most impactful next
   step — it would close most of the remaining gap in one move.
 
-## 4.1 Timing and quality spot checks
+## 5.1 Timing and quality spot checks
 
 Quality is recorded on a 0–100 scale from manual inspection of the
 output for the sample document.
@@ -850,16 +907,16 @@ output for the sample document.
 
 ---
 
-## 5. Suggestions for changes to our API
+## 6. Suggestions for changes to our API
 
 Ordered roughly by **impact ÷ effort**, smallest changes first. The
-§5.1 "cheap wins" list that used to live here has all shipped (`id`
+§6.1 "cheap wins" list that used to live here has all shipped (`id`
 echo, `language` hint, per-page `processing_ms`,
 `usage_info.{pages_processed,doc_size_bytes}`, `OCR_THREADS`
 documented, plus the `results[] → pages[]` and `usage → usage_info`
 renames to match Mistral) — see git history if you want the diff.
 
-### 5.1 Worth doing soon — protocol-level wins
+### 6.1 Worth doing soon — protocol-level wins
 
 These are pure-protocol changes that don't depend on the model's
 visual capabilities; they pay off even on the current backend.
@@ -870,7 +927,7 @@ visual capabilities; they pay off even on the current backend.
    current per-page `output.format=json` and the right shape for
    "extract these 8 fields from this contract".
 
-### 5.2 Bigger bets — operational and API surface
+### 6.2 Bigger bets — operational and API surface
 
 > Authentication is intentionally **not** in this list. The service
 > assumes a reverse proxy / API gateway in front of it that owns
@@ -890,9 +947,9 @@ visual capabilities; they pay off even on the current backend.
    and Docling sticky. The cheapest path is to detect-and-rasterise:
    convert non-PDF formats to PDF on the way in (LibreOffice
    headless / `pdfkit`) and run the existing pipeline. Heavier
-   path: integrate Docling as a non-LLM backend (see §5.3 #14).
+   path: integrate Docling as a non-LLM backend (see §6.3 #14).
 
-### 5.3 Bigger bets — visual / model-dependent
+### 6.3 Bigger bets — visual / model-dependent
 
 The current backend is a markdown-emitting VLM with no notion of
 pixel coordinates or self-reported confidence. Everything in this
@@ -904,7 +961,7 @@ research items rather than ticket-ready tasks.
    "this paragraph lives in this region of the page" coordinates
    would close our biggest gap vs. Mistral, Document AI and
    Docling. The model sees the image, but our current model
-   (`gemma-3-27b`) is not reliable at emitting normalised pixel
+   (`kimi-latest`) is not reliable at emitting normalised pixel
    coordinates. A real solution either needs a layout-aware model
    or a parallel layout pass (e.g. `surya-layout`, `LayoutLMv3`)
    whose output we merge into the response.
@@ -931,10 +988,10 @@ research items rather than ticket-ready tasks.
     same `POST /v1/ocr` shape. We get Docling's classical
     strengths without rewriting our wire format, and clients can
     A/B the two on their own data. This is the single most
-    impactful item in §5 for catching up to the open-source
+    impactful item in §6 for catching up to the open-source
     leader.
 
-### 5.4 Things we should *not* copy
+### 6.4 Things we should *not* copy
 
 - **GCS / object-store-only inputs (Google).** Our self-hosted model
   is the value prop; making the user stage files into a bucket would
@@ -948,4 +1005,4 @@ research items rather than ticket-ready tasks.
   is a real win, especially for parallel test pipelines.
 - **Element-only (no markdown) output (Unstructured).** Markdown is
   the single most useful default for our users; element typing can
-  ride alongside it (§5.1 #5), not replace it.
+  ride alongside it (§6.1 #5), not replace it.
