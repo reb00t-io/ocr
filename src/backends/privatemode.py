@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from openai import APIConnectionError, APIStatusError, OpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from backends.image import encode_jpeg_image
+from backends.quality import detect_trailing_repetition, strip_wrapping_fence
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,37 @@ def _env_str(name: str, default: str) -> str:
 LLM_BASE_URL = _env_str("LLM_BASE_URL", "http://localhost:8080/v1")
 LLM_API_KEY = _env_str("LLM_API_KEY", "dummy")
 LLM_MODEL = _env_str("LLM_MODEL", "gemma-3-27b")
+
+# Generation knobs. OCR wants determinism: greedy-ish sampling on the
+# first attempt, an explicit output-token ceiling so a runaway loop
+# can't burn the whole context window. Retries deliberately *loosen*
+# sampling — when greedy decoding fell into a repetition loop, more
+# randomness is what breaks it out.
+MAX_OUTPUT_TOKENS = int(_env_str("OCR_MAX_OUTPUT_TOKENS", "8192"))
+MAX_RETRIES = int(_env_str("OCR_MAX_RETRIES", "3"))
+_FIRST_ATTEMPT_TEMPERATURE = 0.0
+_FIRST_ATTEMPT_TOP_P = 0.1
+_RETRY_TOP_P = 0.95
+_MAX_RETRY_TEMPERATURE = 0.8
+
+# HTTP statuses worth retrying: rate limit, request timeout, and server
+# errors. A 401/404/422 will fail identically on every attempt.
+_RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
+
+
+def _retry_temperature(attempt: int) -> float:
+    """Sampling temperature for a given attempt (0 = first try)."""
+    if attempt == 0:
+        return _FIRST_ATTEMPT_TEMPERATURE
+    return min(0.2 * attempt, _MAX_RETRY_TEMPERATURE)
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    if isinstance(exc, (APIConnectionError, APITimeoutError)):
+        return True
+    if isinstance(exc, APIStatusError):
+        return exc.response is not None and exc.response.status_code in _RETRYABLE_STATUS
+    return False
 
 _PROMPTS = {
     "markdown": (
@@ -187,31 +220,97 @@ class PrivatemodeBackend:
             }
         ]
 
-        kwargs: dict = {"model": self.model, "messages": messages}
+        kwargs: dict = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": MAX_OUTPUT_TOKENS,
+        }
         if output_format == "json":
             kwargs["response_format"] = {
                 "type": "json_schema",
                 "json_schema": _OCR_JSON_SCHEMA,
             }
 
-        try:
-            response = self.client.chat.completions.create(**kwargs)
-        except Exception as exc:
-            # Re-raise with a descriptive message so callers (and test
-            # fixtures) see the actual URL / status / body instead of just
-            # the bare HTTP error string.
-            detail = _describe_openai_error(exc)
-            logger.warning(
-                "LLM call failed: base_url=%s model=%s — %s",
-                self.base_url, self.model, detail,
+        # Attempt loop. The first attempt decodes near-greedy for
+        # deterministic OCR. If the output is degenerate (a repetition
+        # loop, truncation, or invalid JSON), each retry raises the
+        # temperature (+0.2 per attempt, top_p 0.95) — extra randomness
+        # is what knocks the model out of a greedy loop. Transient HTTP
+        # failures retry with backoff; permanent ones (401/404/…) raise
+        # immediately.
+        last_content: str | None = None
+        last_warning = ""
+        for attempt in range(MAX_RETRIES + 1):
+            kwargs["temperature"] = _retry_temperature(attempt)
+            kwargs["top_p"] = _FIRST_ATTEMPT_TOP_P if attempt == 0 else _RETRY_TOP_P
+
+            try:
+                response = self.client.chat.completions.create(**kwargs)
+            except Exception as exc:
+                detail = _describe_openai_error(exc)
+                if attempt < MAX_RETRIES and _is_retryable_error(exc):
+                    logger.warning(
+                        "LLM call failed (attempt %d/%d), retrying: %s",
+                        attempt + 1, MAX_RETRIES + 1, detail,
+                    )
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                logger.warning(
+                    "LLM call failed: base_url=%s model=%s — %s",
+                    self.base_url, self.model, detail,
+                )
+                raise RuntimeError(detail) from exc
+
+            choice = response.choices[0]
+            raw = choice.message.content or ""
+
+            if output_format == "json":
+                try:
+                    return {"content": json.loads(raw)}
+                except json.JSONDecodeError:
+                    last_content = raw
+                    last_warning = "model returned invalid JSON"
+                    if attempt < MAX_RETRIES:
+                        logger.warning(
+                            "Invalid JSON from model (attempt %d/%d), retrying",
+                            attempt + 1, MAX_RETRIES + 1,
+                        )
+                        continue
+                    raise RuntimeError(
+                        f"model returned invalid JSON after {attempt + 1} attempts"
+                    )
+
+            content = strip_wrapping_fence(raw)
+            repeated = detect_trailing_repetition(content)
+            truncated = choice.finish_reason == "length"
+            if not repeated and not truncated:
+                return {"content": content}
+
+            last_content = content
+            last_warning = (
+                "output ends in a repetition loop" if repeated
+                else "output truncated at the token limit"
             )
-            raise RuntimeError(detail) from exc
+            # Repetition loops retry up the whole temperature ladder.
+            # Truncation *without* detected repetition usually means the
+            # page genuinely produced a huge output — retrying won't
+            # shrink it, so allow a single retry (in case it was a loop
+            # our detector missed) and then return what we have.
+            if attempt < MAX_RETRIES and (repeated or attempt == 0):
+                logger.warning(
+                    "Degenerate OCR output (%s) on attempt %d/%d, retrying "
+                    "with temperature %.1f",
+                    last_warning, attempt + 1, MAX_RETRIES + 1,
+                    _retry_temperature(attempt + 1),
+                )
+                continue
+            break
 
-        raw = response.choices[0].message.content
-
-        if output_format == "json":
-            return {"content": json.loads(raw)}
-        return {"content": raw}
+        # Quality retries exhausted — return the last attempt flagged
+        # with a warning instead of failing the whole page. Partial OCR
+        # text is more useful to the caller than an error.
+        logger.warning("Returning degraded OCR output: %s", last_warning)
+        return {"content": last_content, "warning": last_warning}
 
     def process_images(
         self,

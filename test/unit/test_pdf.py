@@ -51,3 +51,23 @@ class TestPdfToImages:
         data = _make_pdf(num_pages=2)
         with pytest.raises(ValueError, match="out of range"):
             pdf_to_images(data, pages=[5], dpi=72)
+
+    def test_small_page_floored_to_min_dim(self):
+        # A 200x280 pt page at 72 dpi would render 200 px wide — far too
+        # small for OCR. The renderer must raise the effective DPI so the
+        # short side hits min_page_dim.
+        data = _make_pdf(num_pages=1)
+        (img,) = pdf_to_images(data, dpi=72)
+        assert min(img.size) >= 1024
+
+    def test_min_page_dim_zero_disables_floor(self):
+        data = _make_pdf(num_pages=1)
+        (img,) = pdf_to_images(data, dpi=72, min_page_dim=0)
+        assert img.size == (200, 280)
+
+    def test_render_scales_with_dpi(self):
+        data = _make_pdf(num_pages=1)
+        (img,) = pdf_to_images(data, dpi=300)
+        # 200 pt * 300/72 ≈ 833 < 1024 floor → floor wins on this page.
+        assert min(img.size) >= 1024
+        assert img.width / img.height == pytest.approx(200 / 280, rel=0.02)

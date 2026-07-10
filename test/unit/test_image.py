@@ -83,6 +83,57 @@ class TestEncodeJpegImage:
             encode_jpeg_image("/nonexistent/path/image.jpg")
 
 
+class TestOcrSizingRules:
+    def _decode(self, result: str) -> Image.Image:
+        from io import BytesIO
+        return Image.open(BytesIO(base64.b64decode(result)))
+
+    def test_small_image_upscaled_to_min_dim(self):
+        # A low-res scan gets its short side raised to OCR_MIN_IMAGE_DIM.
+        data = _make_test_image(400, 300)
+        img = self._decode(encode_jpeg_bytes(data))
+        assert min(img.size) >= 1024
+
+    def test_upscale_preserves_aspect_ratio(self):
+        data = _make_test_image(400, 200)
+        img = self._decode(encode_jpeg_bytes(data))
+        assert img.width / img.height == pytest.approx(2.0, rel=0.01)
+
+    def test_min_dim_zero_disables_upscale(self):
+        data = _make_test_image(100, 50)
+        img = self._decode(encode_jpeg_bytes(data, min_dim=0))
+        assert img.size == (100, 50)
+
+    def test_huge_image_capped_at_max_pixels(self):
+        data = _make_test_image(4000, 3000)  # 12 MP
+        img = self._decode(encode_jpeg_bytes(data))
+        assert img.width * img.height <= 3072 * 2048
+
+    def test_max_pixels_zero_disables_cap(self):
+        data = _make_test_image(4000, 3000)
+        img = self._decode(encode_jpeg_bytes(data, max_pixels=0))
+        assert img.size == (4000, 3000)
+
+    def test_mid_size_image_untouched(self):
+        data = _make_test_image(2000, 1500)  # 3 MP, min side 1500
+        img = self._decode(encode_jpeg_bytes(data))
+        assert img.size == (2000, 1500)
+
+    def test_explicit_caps_skip_upscale_floor(self):
+        # Callers asking for a small preview must not get the OCR floor.
+        data = _make_test_image(400, 200)
+        img = self._decode(encode_jpeg_bytes(data, max_long=200))
+        assert img.width <= 200
+
+    def test_rgba_input_converted(self):
+        from io import BytesIO
+        img = Image.new("RGBA", (1200, 1100), color=(255, 0, 0, 128))
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        result = encode_jpeg_bytes(buf.getvalue())
+        assert self._decode(result).mode == "RGB"
+
+
 class TestEncodeJpegBytes:
     def test_returns_valid_base64(self):
         data = _make_test_image()

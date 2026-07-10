@@ -110,6 +110,11 @@ For both `images[]` entries and `document`, `type` must be either:
   reading order of the markdown.
 - `pages[].error` is set on individual pages that failed; the rest of
   the response still succeeds.
+- `pages[].warning` is set when the page's content is best-effort:
+  the model kept producing degenerate output (a repetition loop or
+  output truncated at the token limit) even after automatic retries.
+  The content is still returned — check the tail of the page before
+  trusting it.
 - `usage_info.pages_processed` is the number of images / pages actually
   sent to the model (PDF pages count individually).
 - `usage_info.doc_size_bytes` is the total input size after URL fetch /
@@ -215,3 +220,7 @@ The server is configured via environment variables:
 | `LLM_API_KEY`        | `dummy`                       | API key (use `dummy` for local models).  |
 | `LLM_MODEL`          | `gemma-3-27b`                 | Model name passed to the backend.        |
 | `OCR_MAX_UPLOAD_MB`  | `50`                          | Maximum request body size, in megabytes. |
+| `OCR_MAX_OUTPUT_TOKENS` | `8192`                     | Per-page output-token ceiling.           |
+| `OCR_MAX_RETRIES`    | `3`                           | Retries per page on degenerate output / transient errors. |
+| `OCR_MIN_IMAGE_DIM`  | `1024`                        | Upscale floor (px, shorter side) for VLM inputs; `0` disables. |
+| `OCR_MAX_IMAGE_PIXELS` | `6291456`                   | Total-pixel cap for VLM inputs; `0` disables. |

@@ -6,8 +6,10 @@ get back structured markdown, plain text, or extracted JSON.
 ## Requirements
 
 - Python 3.13
-- `poppler-utils` system package (for local PDF support)
 - Privatemode OCR credentials / model access (see configuration)
+
+PDF rendering uses `pypdfium2` (bundled PDFium wheel) — no system
+packages needed.
 
 ## Quick Start
 
@@ -79,6 +81,10 @@ Synchronous. Suitable for single images or short PDFs (≤ 10 pages).
 | `PORT` | set in `.envrc` | Server port |
 | `OCR_FILE_TTL_SECONDS` | `3600` | How long uploaded files are kept |
 | `OCR_MAX_UPLOAD_MB` | `50` | Request size limit |
+| `OCR_MAX_OUTPUT_TOKENS` | `8192` | Per-page output-token ceiling for the VLM |
+| `OCR_MAX_RETRIES` | `3` | Max retries per page on degenerate output or transient upstream errors |
+| `OCR_MIN_IMAGE_DIM` | `1024` | Upscale floor (px, shorter side) for images sent to the VLM; `0` disables |
+| `OCR_MAX_IMAGE_PIXELS` | `6291456` | Total-pixel cap (≈3072×2048) for images sent to the VLM; `0` disables |
 
 ## Project Structure
 
@@ -90,7 +96,7 @@ src/
   backends/
     base.py           # Abstract OCRBackend
     privatemode.py    # Privatemode OCR backend
-  pdf.py              # PDF → image conversion (pdf2image)
+  pdf.py              # PDF → image conversion (pypdfium2, forms flattened)
   schema.py           # Request / response dataclasses
 scripts/
   build.sh            # Docker build
@@ -107,7 +113,6 @@ plan.md               # Implementation plan and architecture notes
 
 ## Docker
 
-The container image installs `poppler-utils`, so PDF preview and OCR work without any extra host packages.
 Runtime settings such as `MISTRAL_API_KEY` are passed through from the shell that runs `docker compose up`.
 
 ```bash

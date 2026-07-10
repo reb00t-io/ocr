@@ -238,6 +238,14 @@ def diag():
         "upload": {
             "max_mb": _env_int("OCR_MAX_UPLOAD_MB", 50),
         },
+        "generation": {
+            "max_output_tokens": _env_int("OCR_MAX_OUTPUT_TOKENS", 8192),
+            "max_retries": _env_int("OCR_MAX_RETRIES", 3),
+        },
+        "image": {
+            "min_dim": _env_int("OCR_MIN_IMAGE_DIM", 1024),
+            "max_pixels": _env_int("OCR_MAX_IMAGE_PIXELS", 3072 * 2048),
+        },
     })
 
 
