@@ -1,4 +1,4 @@
-"""The `LocalOCR` engine: local document handling, any LLM backend.
+"""The `OCR` engine: local document handling, any LLM backend.
 
 All PDF/image processing (rendering, form flattening, sizing) happens
 on this machine; the only thing sent over the network is one JPEG per
@@ -18,8 +18,8 @@ from PIL import Image
 
 from backends.privatemode import MAX_RETRIES, PrivatemodeBackend, build_prompt
 from backends.quality import detect_trailing_repetition, strip_wrapping_fence
-from localocr.inputs import load_pages
-from localocr.result import Document, Page
+from privatemode.inputs import load_pages
+from privatemode.result import Document, Page
 from schema import VALID_FORMATS
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 LLMCallable = Callable[[str, Image.Image], str]
 
 
-class LocalOCR:
+class OCR:
     """OCR documents locally, sending only page images to an LLM.
 
     Args:
@@ -264,11 +264,11 @@ def ocr(
 ) -> Document:
     """One-liner convenience: ``ocr("doc.pdf").markdown``.
 
-    Constructs a throwaway :class:`LocalOCR` (all constructor arguments
+    Constructs a throwaway :class:`OCR` (all constructor arguments
     accepted here) and forwards everything else to
-    :meth:`LocalOCR.process`.
+    :meth:`OCR.process`.
     """
-    engine = LocalOCR(
+    engine = OCR(
         base_url=base_url, api_key=api_key, model=model,
         llm=llm, dpi=dpi, threads=threads, max_retries=max_retries,
     )

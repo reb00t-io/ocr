@@ -1,4 +1,4 @@
-"""Tests for the localocr package, using an in-process fake LLM callable
+"""Tests for the privatemode package, using an in-process fake LLM callable
 so no network or model is required."""
 import io
 import json
@@ -6,7 +6,7 @@ import json
 import pytest
 from PIL import Image
 
-from localocr import Document, LocalOCR, Page, ocr
+from privatemode import Document, OCR, Page, ocr
 
 
 def _image(width: int = 1200, height: int = 900, color: str = "white") -> Image.Image:
@@ -101,7 +101,7 @@ class TestEngineOptions:
         assert seen == [0, 1, 2]
 
     def test_iter_pages_streams_in_order(self):
-        engine = LocalOCR(llm=_fake_llm("s"))
+        engine = OCR(llm=_fake_llm("s"))
         indices = [p.index for p in engine.iter_pages(_pdf_bytes(3))]
         assert indices == [0, 1, 2]
 

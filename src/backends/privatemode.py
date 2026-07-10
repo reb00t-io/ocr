@@ -168,7 +168,7 @@ def build_prompt(
 ) -> str:
     """Assemble the OCR prompt for one page.
 
-    Shared between the HTTP backend and the local `localocr` tool so
+    Shared between the HTTP backend and the local `privatemode` tool so
     both produce identical instructions for the same options.
     """
     prompt = _PROMPTS[output_format]

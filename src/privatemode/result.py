@@ -1,4 +1,4 @@
-"""Result types returned by :mod:`localocr`.
+"""Result types returned by :mod:`privatemode`.
 
 A :class:`Document` is a list of :class:`Page` objects plus convenience
 accessors for the merged output. Both are plain dataclasses — cheap to

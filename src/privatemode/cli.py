@@ -1,13 +1,13 @@
-"""Command-line interface for localocr.
+"""Command-line interface for privatemode.
 
 Usage (from the repo root)::
 
-    python src/localocr/cli.py document.pdf                 # markdown to stdout
-    python src/localocr/cli.py document.pdf -o out.md       # to a file
-    cd src && python -m localocr document.pdf --pages 0-2   # module form
+    python src/privatemode/cli.py document.pdf                 # markdown to stdout
+    python src/privatemode/cli.py document.pdf -o out.md       # to a file
+    cd src && python -m privatemode document.pdf --pages 0-2   # module form
 
 Progress goes to stderr, the result to stdout (or ``-o``), so piping
-just works: ``python src/localocr/cli.py doc.pdf > doc.md``.
+just works: ``python src/privatemode/cli.py doc.pdf > doc.md``.
 """
 from __future__ import annotations
 
@@ -18,17 +18,17 @@ import sys
 from pathlib import Path
 
 if __package__ in (None, ""):
-    # Running as a plain script (python src/localocr/cli.py …):
-    # make the sibling modules (pdf, schema, backends, localocr) importable.
+    # Running as a plain script (python src/privatemode/cli.py …):
+    # make the sibling modules (pdf, schema, backends, privatemode) importable.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from localocr.engine import LocalOCR
+from privatemode.engine import OCR
 from schema import VALID_FORMATS
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="localocr",
+        prog="ocr",
         description=(
             "OCR a PDF or image locally: all document handling happens on "
             "this machine, only page images are sent to the LLM."
@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # The API key comes from the environment only — a --api-key flag
     # would leak secrets into shell history and process listings.
-    engine = LocalOCR(
+    engine = OCR(
         base_url=args.base_url,
         api_key=os.environ.get("LLM_API_KEY") or None,
         model=args.model,
