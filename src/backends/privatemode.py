@@ -67,7 +67,7 @@ def _env_str(name: str, default: str) -> str:
 
 LLM_BASE_URL = _env_str("LLM_BASE_URL", "http://localhost:8080/v1")
 LLM_API_KEY = _env_str("LLM_API_KEY", "dummy")
-LLM_MODEL = _env_str("LLM_MODEL", "gemma-3-27b")
+LLM_MODEL = _env_str("LLM_MODEL", "kimi-latest")
 
 # Generation knobs. OCR wants determinism: greedy-ish sampling on the
 # first attempt, an explicit output-token ceiling so a runaway loop

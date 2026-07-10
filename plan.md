@@ -59,7 +59,7 @@ Exactly one of `images` or `document` must be provided.
 **Response:**
 ```json
 {
-  "model": "gemma-3-27b",
+  "model": "kimi-latest",
   "results": [
     { "index": 0, "content": "# Invoice\n..." }
   ],
@@ -123,7 +123,7 @@ Poppler installed via `apt-get install poppler-utils` in Dockerfile,
 | `PORT` | set in `.envrc` | Server port |
 | `LLM_BASE_URL` | `http://localhost:8080/v1` | OpenAI-compatible inference endpoint |
 | `LLM_API_KEY` | `dummy` | API key (use `dummy` for local models) |
-| `LLM_MODEL` | `gemma-3-27b` | Model name |
+| `LLM_MODEL` | `kimi-latest` | Model name |
 | `OCR_MAX_UPLOAD_MB` | `50` | Request body size limit |
 
 ---

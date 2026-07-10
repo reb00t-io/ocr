@@ -71,7 +71,7 @@ For both `images[]` entries and `document`, `type` must be either:
 ```json
 {
   "id":    "req-2026-04-10-002",
-  "model": "gemma-3-27b",
+  "model": "kimi-latest",
   "pages": [
     {
       "index": 0,
@@ -218,7 +218,7 @@ The server is configured via environment variables:
 | `PORT`               | (required)                    | TCP port to bind.                        |
 | `LLM_BASE_URL`       | `http://localhost:8080/v1`    | OpenAI-compatible inference endpoint.    |
 | `LLM_API_KEY`        | `dummy`                       | API key (use `dummy` for local models).  |
-| `LLM_MODEL`          | `gemma-3-27b`                 | Model name passed to the backend.        |
+| `LLM_MODEL`          | `kimi-latest`                 | Model name passed to the backend.        |
 | `OCR_MAX_UPLOAD_MB`  | `50`                          | Maximum request body size, in megabytes. |
 | `OCR_MAX_OUTPUT_TOKENS` | `8192`                     | Per-page output-token ceiling.           |
 | `OCR_MAX_RETRIES`    | `3`                           | Retries per page on degenerate output / transient errors. |
