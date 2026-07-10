@@ -95,6 +95,18 @@ def encode_jpeg_image(
         return _encode(img, max_long, max_short, quality, min_dim, max_pixels)
 
 
+def encode_jpeg_pil(
+    img: Image.Image,
+    max_long: int | None = None,
+    max_short: int | None = None,
+    quality: int = 92,
+    min_dim: int = MIN_IMAGE_DIM,
+    max_pixels: int = MAX_IMAGE_PIXELS,
+) -> str:
+    """Same as encode_jpeg_image but accepts an already-loaded PIL image."""
+    return _encode(img, max_long, max_short, quality, min_dim, max_pixels)
+
+
 def encode_jpeg_bytes(
     image_bytes: bytes,
     max_long: int | None = None,

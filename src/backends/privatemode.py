@@ -6,7 +6,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
-from backends.image import encode_jpeg_image
+from PIL import Image
+
+from backends.image import encode_jpeg_bytes, encode_jpeg_image, encode_jpeg_pil
 from backends.quality import detect_trailing_repetition, strip_wrapping_fence
 
 logger = logging.getLogger(__name__)
@@ -158,6 +160,43 @@ _OCR_JSON_SCHEMA = {
 }
 
 
+def build_prompt(
+    output_format: str,
+    language: str | None = None,
+    describe_images: bool = False,
+    user_prompt: str | None = None,
+) -> str:
+    """Assemble the OCR prompt for one page.
+
+    Shared between the HTTP backend and the local `localocr` tool so
+    both produce identical instructions for the same options.
+    """
+    prompt = _PROMPTS[output_format]
+    if language:
+        prompt = f"{prompt} The document language is {language}."
+    if describe_images and output_format != "json":
+        # The JSON prompt has a strict schema; tacking on a free-form
+        # section would break the response. Markdown / text are fine.
+        prompt = f"{prompt}{_DESCRIBE_IMAGES_SUFFIX}"
+    if user_prompt and output_format != "json":
+        # Merge the caller's instruction as the *primary* directive.
+        # Placing it after the defaults and explicitly flagging it
+        # as overriding them makes the model follow the user's
+        # intent (e.g. "summarize each page") even when it conflicts
+        # with "preserve all structure" in the base prompt. The
+        # defaults still apply to everything the user didn't
+        # override (format, output-only constraint, etc.). JSON
+        # format is skipped because the strict schema doesn't leave
+        # room for free-form changes.
+        prompt = (
+            f"{prompt}\n\n"
+            f"Additional instruction from the user "
+            f"(treat this as the primary task and override the "
+            f"defaults above where they conflict): {user_prompt}"
+        )
+    return prompt
+
+
 class PrivatemodeBackend:
     def __init__(
         self,
@@ -176,36 +215,19 @@ class PrivatemodeBackend:
 
     def _ocr_single(
         self,
-        image_path: str,
+        image_path: "str | bytes | Image.Image",
         output_format: str,
         language: str | None = None,
         describe_images: bool = False,
         user_prompt: str | None = None,
     ) -> dict:
-        base64_image = encode_jpeg_image(image_path)
-        prompt = _PROMPTS[output_format]
-        if language:
-            prompt = f"{prompt} The document language is {language}."
-        if describe_images and output_format != "json":
-            # The JSON prompt has a strict schema; tacking on a free-form
-            # section would break the response. Markdown / text are fine.
-            prompt = f"{prompt}{_DESCRIBE_IMAGES_SUFFIX}"
-        if user_prompt and output_format != "json":
-            # Merge the caller's instruction as the *primary* directive.
-            # Placing it after the defaults and explicitly flagging it
-            # as overriding them makes the model follow the user's
-            # intent (e.g. "summarize each page") even when it conflicts
-            # with "preserve all structure" in the base prompt. The
-            # defaults still apply to everything the user didn't
-            # override (format, output-only constraint, etc.). JSON
-            # format is skipped because the strict schema doesn't leave
-            # room for free-form changes.
-            prompt = (
-                f"{prompt}\n\n"
-                f"Additional instruction from the user "
-                f"(treat this as the primary task and override the "
-                f"defaults above where they conflict): {user_prompt}"
-            )
+        if isinstance(image_path, Image.Image):
+            base64_image = encode_jpeg_pil(image_path)
+        elif isinstance(image_path, (bytes, bytearray)):
+            base64_image = encode_jpeg_bytes(bytes(image_path))
+        else:
+            base64_image = encode_jpeg_image(image_path)
+        prompt = build_prompt(output_format, language, describe_images, user_prompt)
 
         messages = [
             {

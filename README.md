@@ -3,6 +3,11 @@
 A self-hosted OCR REST API built on **Privatemode OCR**. Submit a PDF or image,
 get back structured markdown, plain text, or extracted JSON.
 
+Also ships **`localocr`**, a local Python tool with the same pipeline but no
+server: all PDF handling stays on your machine and only page images go to the
+LLM — any OpenAI-compatible endpoint, or any model at all via a callable.
+See [Local Python tool](#local-python-tool-localocr).
+
 ## Requirements
 
 - Python 3.13
@@ -24,6 +29,47 @@ python src/main.py
 # 3. Or run with Docker
 ./scripts/build.sh
 docker compose up
+```
+
+## Local Python tool (`localocr`)
+
+Use the OCR pipeline without running the server. PDFs are rendered locally
+(pypdfium2, form fields flattened, adaptive DPI, image sizing rules); the LLM
+only ever receives one JPEG per page. Quality guards (repetition-loop retries,
+fence stripping, truncation detection) are built in.
+
+```python
+from localocr import ocr, LocalOCR
+
+# Zero config — uses LLM_BASE_URL / LLM_API_KEY / LLM_MODEL from the env
+doc = ocr("invoice.pdf")
+print(doc.markdown)
+
+# Any OpenAI-compatible endpoint
+engine = LocalOCR(base_url="https://api.openai.com/v1", api_key="sk-…", model="gpt-4o")
+doc = engine.process("scan.pdf", pages="0-2,5", language="de")
+doc.save("out.md")
+
+# Literally any LLM — plug in a callable (prompt, PIL image) -> str
+engine = LocalOCR(llm=lambda prompt, image: my_model.generate(prompt, image))
+
+# Stream pages as they finish (pages OCR concurrently, yield in order)
+for page in engine.iter_pages("big.pdf"):
+    print(page.index, page.warning or "ok", page.content[:60])
+```
+
+`process()` / `ocr()` accept a file path, URL, raw bytes, PIL image, file-like
+object, or a list mixing any of those. Results are `Document` / `Page`
+dataclasses with `.markdown`, `.text`, `.data`, per-page `.tables()` /
+`.elements()`, `.warning` / `.error`, and `save()`.
+
+CLI (progress on stderr, result on stdout — pipes cleanly):
+
+```bash
+python src/localocr/cli.py document.pdf                # markdown to stdout
+python src/localocr/cli.py document.pdf -o out.md --pages 0-2 --language de
+python src/localocr/cli.py scan.jpg -f json | jq '.pages[0]'
+cd src && python -m localocr document.pdf              # module form
 ```
 
 ## API
@@ -97,6 +143,7 @@ src/
     base.py           # Abstract OCRBackend
     privatemode.py    # Privatemode OCR backend
   pdf.py              # PDF → image conversion (pypdfium2, forms flattened)
+  localocr/           # local Python tool + CLI (no server needed)
   schema.py           # Request / response dataclasses
 scripts/
   build.sh            # Docker build
